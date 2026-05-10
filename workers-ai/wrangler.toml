@@ -1,0 +1,36 @@
+# Cloudflare Workers AI - Gemma Embedding Worker
+# https://developers.cloudflare.com/workers-ai/models/embeddinggemma-300m/
+
+name = "gemma-embedding-worker"
+main = "gemma-embedding-worker.js"
+compatibility_date = "2024-01-01"
+
+# Workers AI binding - REQUIRED
+# This gives you access to the AI models
+[ai]
+binding = "AI"
+
+# Optional: KV namespace for caching embeddings
+# [[kv_namespaces]]
+# binding = "EMBEDDING_CACHE"
+# id = "your-kv-namespace-id"
+
+# Environment variables
+[vars]
+# Default Matryoshka dimensions (can be overridden per request)
+DEFAULT_DIMENSIONS = "768"
+# Enable binary quantization by default
+ENABLE_BINARY_QUANTIZATION = "true"
+
+# Secrets (use: wrangler secret put API_KEY)
+# Do NOT add secrets here - use the CLI command instead
+# API_KEY - Required for authentication. All embedding endpoints require this key.
+
+# Rate limiting (configure in Cloudflare dashboard if needed)
+# [limits]
+# cpu_ms = 10000  # 10 seconds CPU time limit
+
+# Custom routes (optional)
+# [[routes]]
+# pattern = "embedding.yourdomain.com/*"
+# custom_domain = true
