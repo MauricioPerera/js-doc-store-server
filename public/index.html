@@ -1,116 +1,277 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sovereign Data Dashboard</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f6; color: #333; margin: 0; padding: 20px; }
-        .container { max-width: 1000px; margin: auto; }
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
-        h1 { color: #2c3e50; margin: 0; }
-        .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
-        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: transform 0.2s; }
-        .card:hover { transform: translateY(-5px); }
-        .card h3 { margin-top: 0; color: #3498db; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-        .data-item { font-size: 0.9em; margin: 8px 0; color: #666; }
-        .data-item b { color: #333; }
-        .status { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 0.8em; font-weight: bold; }
-        .status-active { background: #d4edda; color: #155724; }
-        .status-pending { background: #fff3cd; color: #856404; }
-        .loading { text-align: center; font-size: 1.2em; color: #888; margin-top: 50px; }
-        select { padding: 8px; border-radius: 5px; border: 1px solid #ccc; margin-bottom: 20px; }
-    </style>
+    <title>js-doc-store Admin</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Sovereign Data Dashboard</h1>
-            <div id="server-status">🟢 Server Connected</div>
-        </header>
+    <div id="app">
+        <!-- Login Screen -->
+        <div id="login-screen" class="screen active">
+            <div class="login-container">
+                <h1>🔧 js-doc-store</h1>
+                <p class="subtitle">Document Database Admin</p>
 
-        <div id="controls">
-            <label for="table-select">View Collection:</label>
-            <select id="table-select" onchange="loadData()">
-                <option value="">Loading tables...</option>
-            </select>
+                <div class="form-group">
+                    <label>API URL</label>
+                    <input type="url" id="api-url" placeholder="https://your-worker.workers.dev" value="https://doc-store-api-prod.rckflr.workers.dev">
+                </div>
+
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="email" placeholder="admin@example.com">
+                </div>
+
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="password" placeholder="••••••••">
+                </div>
+
+                <button id="btn-login" class="btn-primary">Login</button>
+                <div id="login-error" class="error-message"></div>
+
+                <div class="quick-login">
+                    <p>Quick Login (demo):</p>
+                    <button class="btn-secondary" onclick="quickLogin()">admin@example.com / Admin123!</button>
+                </div>
+            </div>
         </div>
 
-        <div id="main-content" class="card-grid">
-            <div class="loading">Please select a table to view data...</div>
+        <!-- Main Dashboard -->
+        <div id="dashboard-screen" class="screen">
+            <header class="app-header">
+                <div class="header-left">
+                    <h1>🔧 js-doc-store</h1>
+                    <nav class="nav-tabs">
+                        <button class="nav-tab active" data-tab="tables">📊 Tables</button>
+                        <button class="nav-tab" data-tab="vectors">🔍 Vector Search</button>
+                        <button class="nav-tab" data-tab="query">⚡ Query</button>
+                        <button class="nav-tab" data-tab="settings">⚙️ Settings</button>
+                    </nav>
+                </div>
+                <div class="header-right">
+                    <span id="connection-status" class="status-badge">🟢 Connected</span>
+                    <button id="btn-logout" class="btn-icon" title="Logout">🚪</button>
+                    <button id="btn-theme" class="btn-icon" title="Toggle Theme">🌙</button>
+                </div>
+            </header>
+
+            <main class="app-main">
+                <!-- Tables Tab -->
+                <div id="tab-tables" class="tab-content active">
+                    <div class="section-header">
+                        <h2>Tables</h2>
+                        <button id="btn-create-table" class="btn-primary">+ Create Table</button>
+                    </div>
+
+                    <div id="tables-grid" class="tables-grid">
+                        <div class="loading">Loading tables...</div>
+                    </div>
+                </div>
+
+                <!-- Vector Search Tab -->
+                <div id="tab-vectors" class="tab-content">
+                    <div class="section-header">
+                        <h2>🔍 Vector Search</h2>
+                    </div>
+
+                    <div class="vector-search-container">
+                        <div class="search-box">
+                            <input type="text" id="vector-query" placeholder="Search by natural language (e.g., 'machine learning articles')">
+                            <select id="vector-collection">
+                                <option value="">All Collections</option>
+                            </select>
+                            <button id="btn-vector-search" class="btn-primary">Search</button>
+                        </div>
+
+                        <div class="vector-options">
+                            <label>
+                                <span>Limit:</span>
+                                <input type="number" id="vector-limit" value="10" min="1" max="100">
+                            </label>
+                            <label>
+                                <span>Type:</span>
+                                <select id="vector-type">
+                                    <option value="cosine">Cosine Similarity</option>
+                                    <option value="hybrid">Hybrid (Vector + BM25)</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <div id="vector-results" class="results-container">
+                            <div class="empty-state">
+                                <p>Enter a query to search</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="collections-info">
+                        <h3>Collections</h3>
+                        <div id="collections-list" class="collections-list"></div>
+                    </div>
+                </div>
+
+                <!-- Query Tab -->
+                <div id="tab-query" class="tab-content">
+                    <div class="section-header">
+                        <h2>⚡ Advanced Query</h2>
+                    </div>
+
+                    <div class="query-builder">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Table</label>
+                                <select id="query-table">
+                                    <option value="">Select table...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Limit</label>
+                                <input type="number" id="query-limit" value="100" min="1" max="10000">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Filter (JSON)</label>
+                            <textarea id="query-filter" rows="4" placeholder='{"status": "active", "age": {"$gte": 18}}'></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Sort</label>
+                            <div class="sort-row">
+                                <input type="text" id="query-sort-field" placeholder="Field name">
+                                <select id="query-sort-order">
+                                    <option value="asc">Ascending</option>
+                                    <option value="desc">Descending</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button id="btn-run-query" class="btn-primary">Run Query</button>
+                    </div>
+
+                    <div id="query-results" class="results-container">
+                        <div class="empty-state">
+                            <p>Build a query and click Run</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Tab -->
+                <div id="tab-settings" class="tab-content">
+                    <div class="section-header">
+                        <h2>⚙️ Settings</h2>
+                    </div>
+
+                    <div class="settings-grid">
+                        <div class="settings-card">
+                            <h3>Connection</h3>
+                            <div class="setting-item">
+                                <span>API URL</span>
+                                <code id="settings-api-url">-</code>
+                            </div>
+                            <div class="setting-item">
+                                <span>User</span>
+                                <span id="settings-user">-</span>
+                            </div>
+                            <div class="setting-item">
+                                <span>Roles</span>
+                                <span id="settings-roles">-</span>
+                            </div>
+                        </div>
+
+                        <div class="settings-card">
+                            <h3>Vector Store</h3>
+                            <div class="setting-item">
+                                <span>Dimensions</span>
+                                <span>768</span>
+                            </div>
+                            <div class="setting-item">
+                                <span>Store Type</span>
+                                <span>binary</span>
+                            </div>
+                            <div class="setting-item">
+                                <span>Max Collections</span>
+                                <span>50</span>
+                            </div>
+                        </div>
+
+                        <div class="settings-card">
+                            <h3>Appearance</h3>
+                            <div class="setting-item">
+                                <span>Theme</span>
+                                <button id="btn-toggle-theme" class="btn-secondary">Switch to Light</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Create Table Modal -->
+        <div id="modal-create-table" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Create New Table</h3>
+                    <button class="btn-close" onclick="closeModal('modal-create-table')">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Table Name</label>
+                        <input type="text" id="new-table-name" placeholder="my_table">
+                    </div>
+
+                    <div class="columns-builder">
+                        <label>Columns</label>
+                        <div id="columns-list"></div>
+                        <button type="button" class="btn-secondary" onclick="addColumn()">+ Add Column</button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="closeModal('modal-create-table')">Cancel</button>
+                    <button class="btn-primary" onclick="createTable()">Create</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Table View Modal -->
+        <div id="modal-table-view" class="modal modal-large">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="view-table-name">Table Data</h3>
+                    <div class="modal-actions">
+                        <button class="btn-secondary" onclick="showInsertModal()">+ Insert</button>
+                        <button class="btn-close" onclick="closeModal('modal-table-view')">×</button>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <div id="table-data-container" class="table-container">
+                        <div class="loading">Loading data...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Insert/Edit Modal -->
+        <div id="modal-insert" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="insert-title">Insert Data</h3>
+                    <button class="btn-close" onclick="closeModal('modal-insert')">×</button>
+                </div>
+                <div class="modal-body">
+                    <div id="insert-form" class="insert-form"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="closeModal('modal-insert')">Cancel</button>
+                    <button class="btn-primary" onclick="saveData()">Save</button>
+                </div>
+            </div>
         </div>
     </div>
 
-    <script>
-        const API_BASE = window.location.origin;
-
-        async function fetchTables() {
-            try {
-                const res = await fetch(`${API_BASE}/public/tables`);
-                const data = await res.json();
-                const select = document.getElementById('table-select');
-                select.innerHTML = '<option value="">-- Choose a Table --</option>';
-                data.tables.forEach(t => {
-                    const opt = document.createElement('option');
-                    opt.value = t;
-                    opt.innerText = t;
-                    select.appendChild(opt);
-                });
-            } catch (e) {
-                console.error("Error loading tables", e);
-                document.getElementById('server-status').innerText = "🔴 Server Error";
-            }
-        }
-
-        async function loadData() {
-            const tableName = document.getElementById('table-select').value;
-            const content = document.getElementById('main-content');
-            
-            if (!tableName) {
-                content.innerHTML = '<div class="loading">Please select a table to view data...</div>';
-                return;
-            }
-
-            content.innerHTML = '<div class="loading">Loading records...</div>';
-
-            try {
-                const res = await fetch(`${API_BASE}/public/query/${tableName}`);
-                const { data } = await res.json();
-
-                if (!data || data.length === 0) {
-                    content.innerHTML = '<div class="loading">No records found in this table.</div>';
-                    return;
-                }
-
-                content.innerHTML = '';
-                data.forEach(doc => {
-                    const card = document.createElement('div');
-                    card.className = 'card';
-                    
-                    let html = `<h3>${doc.Name || doc.title || 'Untitled'}</h3>`;
-                    for (const [key, value] of Object.entries(doc)) {
-                        if (key === '_id') continue;
-                        if (key === 'Name' || key === 'title') continue;
-
-                        const isStatus = key.toLowerCase().includes('status');
-                        const statusClass = isStatus ? (value === 'Active' ? 'status-active' : 'status-pending') : '';
-                        
-                        html += `<div class="data-item">
-                            <b>${key}:</b> 
-                            <span class="status ${statusClass}">${value}</span>
-                        </div>`;
-                    }
-                    card.innerHTML = html;
-                    content.appendChild(card);
-                });
-
-            } catch (e) {
-                console.error("Error loading data", e);
-                content.innerHTML = '<div class="loading">Error loading data from server.</div>';
-            }
-        }
-
-        fetchTables();
-    </script>
+    <script src="app.js"></script>
 </body>
 </html>
