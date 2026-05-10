@@ -6,10 +6,10 @@ name = "js-doc-store-server"
 main = "cloudflare-worker.js"
 compatibility_date = "2024-01-01"
 
-# KV Namespace binding - UPDATE THIS ID after creating the namespace
+# KV Namespace binding
 [[kv_namespaces]]
 binding = "DOC_STORE_KV"
-id = "YOUR_KV_NAMESPACE_ID_HERE"
+id = "b0c25c0bfde041a69b4e560770ce6552"
 
 # Environment variables (public)
 [vars]
