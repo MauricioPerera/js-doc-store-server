@@ -114,9 +114,21 @@ export default {
 
     // --- AUTH ENDPOINTS ---
 
-    // POST /auth/register
+    // POST /auth/register - Requires SETUP_TOKEN if configured
     if (path === '/auth/register' && request.method === 'POST') {
       const body = await json();
+
+      // Check if SETUP_TOKEN is configured
+      if (env.SETUP_TOKEN) {
+        // Require setup_token in request body
+        if (body.setup_token !== env.SETUP_TOKEN) {
+          return new Response(JSON.stringify({
+            success: false,
+            message: 'Invalid or missing setup_token. Registration requires a valid setup token.'
+          }), { status: 403, headers: corsHeaders });
+        }
+      }
+
       try {
         const user = await auth.register(body.email, body.password, { name: body.name });
         await db.flush();
