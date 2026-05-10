@@ -73,12 +73,17 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Debug node_modules
+        run: |
+          ls -la node_modules/ | head -20
+          ls -la node_modules/js-doc-store 2>/dev/null || echo "js-doc-store not found in node_modules"
+
       - name: Install esbuild
         run: npm install -g esbuild
 
       - name: Bundle worker
         run: |
-          esbuild cloudflare-worker.js --bundle --platform=neutral --target=es2022 --outfile=worker.bundle.js \
+          npx esbuild cloudflare-worker.js --bundle --platform=neutral --target=es2022 --outfile=worker.bundle.js \
             --external:node:* --external:cloudflare:*
           ls -la worker.bundle.js
 
