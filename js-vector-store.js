@@ -285,15 +285,22 @@ function _normalizedSearchAcross(store, collections, query, limit, metric) {
 
 let _fs = null;
 let _path = null;
+let _fsAvailable = false;
+
+// Try to load fs only if in Node.js environment
+try {
+  if (typeof process !== 'undefined' && process.versions?.node) {
+    _fs   = require('fs');
+    _path = require('path');
+    _fsAvailable = true;
+  }
+} catch {
+  _fsAvailable = false;
+}
 
 function _getFs() {
-  if (!_fs) {
-    try {
-      _fs   = require('fs');
-      _path = require('path');
-    } catch {
-      throw new Error('VectorStore: entorno sin fs — usá un StorageAdapter personalizado');
-    }
+  if (!_fsAvailable) {
+    throw new Error('VectorStore: FileStorageAdapter not available — use CloudflareKVAdapter or MemoryStorageAdapter instead');
   }
   return { fs: _fs, path: _path };
 }
@@ -2420,7 +2427,7 @@ class Reranker {
 // EXPORTS
 // ---------------------------------------------------------------------------
 
-module.exports = {
+export {
   VectorStore,
   QuantizedStore,
   BinaryQuantizedStore,

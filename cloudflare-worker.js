@@ -12,8 +12,7 @@ import {
   PolarQuantizedStore,
   IVFIndex,
   BM25Index,
-  HybridSearch,
-  CloudflareKVAdapter as VectorKVAdapter
+  HybridSearch
 } from './js-vector-store.js';
 
 // JWT Secret from environment
@@ -31,9 +30,9 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // Initialize adapters
+    // Initialize adapters (same KV, different prefixes)
     const docAdapter = new CloudflareKVAdapter(env.DOC_STORE_KV, 'jsdoc/');
-    const vectorAdapter = new VectorKVAdapter(env.DOC_STORE_KV, 'vec/');
+    const vectorAdapter = new CloudflareKVAdapter(env.DOC_STORE_KV, 'vec/');
 
     await docAdapter.preloadAll();
     await vectorAdapter.preloadAll();
