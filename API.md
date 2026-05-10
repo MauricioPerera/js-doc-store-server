@@ -1067,6 +1067,135 @@ Support for configurable dimensions (truncating from 2048):
 
 ---
 
+## 📊 Monitoring Endpoints
+
+### GET /health
+
+Health check endpoint for monitoring and load balancers.
+
+**Authentication:** None
+
+**Request:**
+```bash
+curl https://YOUR_WORKER_SUBDOMAIN.workers.dev/health
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "status": "healthy",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "version": "1.2.0",
+  "features": {
+    "embeddings": true,
+    "kv": "connected",
+    "rateLimiting": true,
+    "metrics": true
+  }
+}
+```
+
+---
+
+### GET /admin/metrics
+
+Get usage metrics for monitoring.
+
+**Authentication:** Required (Admin)
+
+**Query Parameters:**
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| hours | number | 24 | Hours of history to retrieve |
+
+**Request:**
+```bash
+curl "https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/metrics?hours=24" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "period": "24h",
+  "summary": {
+    "totalRequests": 1523,
+    "totalErrors": 12,
+    "totalEmbeddings": 234,
+    "errorRate": "0.79%"
+  },
+  "hourly": {
+    "2024-01-15T10": {
+      "requests": 45,
+      "errors": 1,
+      "embeddings": 12
+    }
+  }
+}
+```
+
+---
+
+### GET /admin/errors
+
+Get recent error reports (last 50).
+
+**Authentication:** Required (Admin)
+
+**Request:**
+```bash
+curl https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/errors \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "count": 12,
+  "errors": [
+    {
+      "timestamp": "2024-01-15T10:30:00Z",
+      "userAgent": "Mozilla/5.0...",
+      "error": "Rate limit exceeded",
+      "context": { "path": "/admin/embed" },
+      "url": "https://..."
+    }
+  ]
+}
+```
+
+---
+
+### POST /admin/errors/report
+
+Report client-side errors for monitoring.
+
+**Authentication:** None
+
+**Request Body:**
+```json
+{
+  "error": "Something went wrong",
+  "context": { "component": "SearchForm" },
+  "url": "https://myapp.com/search"
+}
+```
+
+**Request:**
+```bash
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/errors/report \
+  -H "Content-Type: application/json" \
+  -d '{
+    "error": "Network timeout",
+    "context": { "operation": "vector_search" }
+  }'
+```
+
+---
+
 ## 🔒 Vault Endpoints
 
 Secure secret storage.

@@ -86,6 +86,37 @@ export default {
     EMBEDDING_CONFIG.workerUrl = env.EMBEDDING_WORKER_URL || null;
     EMBEDDING_CONFIG.apiKey = env.EMBEDDING_API_KEY || null;
 
+    // Metrics tracking
+    const METRICS_PREFIX = 'metrics:';
+    const CURRENT_HOUR = new Date().toISOString().slice(0, 13); // YYYY-MM-DDTHH
+
+    async function trackMetric(metricType, value = 1) {
+      const key = `${METRICS_PREFIX}${metricType}:${CURRENT_HOUR}`;
+      const current = await env.DOC_STORE_KV.get(key, 'json') || { count: 0, hour: CURRENT_HOUR };
+      current.count += value;
+      await env.DOC_STORE_KV.put(key, JSON.stringify(current), { expirationTtl: 86400 * 30 }); // 30 days
+    }
+
+    async function getMetrics(hours = 24) {
+      const metrics = {};
+      const now = new Date();
+      for (let i = 0; i < hours; i++) {
+        const date = new Date(now.getTime() - i * 3600000);
+        const hourKey = date.toISOString().slice(0, 13);
+        const requests = await env.DOC_STORE_KV.get(`${METRICS_PREFIX}requests:${hourKey}`, 'json');
+        const errors = await env.DOC_STORE_KV.get(`${METRICS_PREFIX}errors:${hourKey}`, 'json');
+        const embeddings = await env.DOC_STORE_KV.get(`${METRICS_PREFIX}embeddings:${hourKey}`, 'json');
+        if (requests || errors || embeddings) {
+          metrics[hourKey] = {
+            requests: requests?.count || 0,
+            errors: errors?.count || 0,
+            embeddings: embeddings?.count || 0
+          };
+        }
+      }
+      return metrics;
+    }
+
     /**
      * Generate embedding via Cloudflare AI (direct binding)
      * @param {string} text - Text to embed
@@ -436,8 +467,10 @@ export default {
         const result = await auth.login(body.email, body.password);
         await db.flush();
         await docAdapter.persist();
+        await trackMetric('requests', 1);
         return new Response(JSON.stringify({ success: true, token: result.token, user: result.user }), { headers: corsHeaders });
       } catch (e) {
+        await trackMetric('errors', 1);
         return new Response(JSON.stringify({ success: false, message: e.message }), { status: 401, headers: corsHeaders });
       }
     }
@@ -1106,6 +1139,7 @@ export default {
 
         const embedding = await generateEmbedding(text, dimensions);
 
+        await trackMetric('embeddings', 1);
         return new Response(JSON.stringify({
           success: true,
           model: '@cf/google/embeddinggemma-300m',
@@ -1114,6 +1148,7 @@ export default {
         }), { headers: { ...corsHeaders, ...rateLimitHeaders } });
 
       } catch (e) {
+        await trackMetric('errors', 1);
         return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500, headers: corsHeaders });
       }
     }
@@ -1237,6 +1272,8 @@ export default {
         // Search
         const results = vectorStore.search(collection, queryEmbedding, limit, 0, metric);
 
+        await trackMetric('embeddings', 1);
+        await trackMetric('requests', 1);
         return new Response(JSON.stringify({
           success: true,
           query,
@@ -1246,6 +1283,7 @@ export default {
         }), { headers: { ...corsHeaders, ...rateLimitHeaders } });
 
       } catch (e) {
+        await trackMetric('errors', 1);
         return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500, headers: corsHeaders });
       }
     }
@@ -1335,7 +1373,111 @@ export default {
       }
     }
 
+    // --- METRICS ENDPOINT ---
+
+    // GET /admin/metrics - Get usage metrics
+    if (path === '/admin/metrics' && request.method === 'GET') {
+      const authCheck = await verifyAuth(request, 'admin');
+      if (authCheck.error) {
+        return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
+      }
+
+      const url = new URL(request.url);
+      const hours = parseInt(url.searchParams.get('hours')) || 24;
+
+      const metrics = await getMetrics(hours);
+      const totalRequests = Object.values(metrics).reduce((sum, m) => sum + (m.requests || 0), 0);
+      const totalErrors = Object.values(metrics).reduce((sum, m) => sum + (m.errors || 0), 0);
+      const totalEmbeddings = Object.values(metrics).reduce((sum, m) => sum + (m.embeddings || 0), 0);
+
+      return new Response(JSON.stringify({
+        success: true,
+        period: `${hours}h`,
+        summary: {
+          totalRequests,
+          totalErrors,
+          totalEmbeddings,
+          errorRate: totalRequests > 0 ? ((totalErrors / totalRequests) * 100).toFixed(2) + '%' : '0%'
+        },
+        hourly: metrics
+      }), { headers: corsHeaders });
+    }
+
+    // POST /admin/errors/report - Report client-side errors
+    if (path === '/admin/errors/report' && request.method === 'POST') {
+      const body = await json();
+
+      // Store error in KV for analysis
+      const errorLog = {
+        timestamp: new Date().toISOString(),
+        userAgent: request.headers.get('User-Agent'),
+        ip: request.headers.get('CF-Connecting-IP'),
+        error: body.error,
+        context: body.context,
+        url: body.url
+      };
+
+      const errorKey = `error:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
+      await env.DOC_STORE_KV.put(errorKey, JSON.stringify(errorLog), { expirationTtl: 86400 * 7 }); // 7 days
+
+      // Track error metric
+      await trackMetric('errors', 1);
+
+      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+    }
+
+    // GET /admin/errors - Get recent errors (admin only)
+    if (path === '/admin/errors' && request.method === 'GET') {
+      const authCheck = await verifyAuth(request, 'admin');
+      if (authCheck.error) {
+        return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
+      }
+
+      // List recent errors
+      const keys = await env.DOC_STORE_KV.list({ prefix: 'error:' });
+      const errors = [];
+
+      for (const key of keys.keys.slice(0, 50)) { // Last 50 errors
+        const errorData = await env.DOC_STORE_KV.get(key.name, 'json');
+        if (errorData) {
+          errors.push(errorData);
+        }
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        count: errors.length,
+        errors: errors.reverse() // Newest first
+      }), { headers: corsHeaders });
+    }
+
+    // GET /health - Health check endpoint
+    if (path === '/health' && request.method === 'GET') {
+      // Check KV connectivity
+      let kvStatus = 'unknown';
+      try {
+        await env.DOC_STORE_KV.put('health-check', 'ok', { expirationTtl: 60 });
+        kvStatus = 'connected';
+      } catch (e) {
+        kvStatus = 'error: ' + e.message;
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        version: '1.2.0',
+        features: {
+          embeddings: !!env.AI,
+          kv: kvStatus,
+          rateLimiting: true,
+          metrics: true
+        }
+      }), { headers: corsHeaders });
+    }
+
     // Default: 404
+    await trackMetric('errors', 1);
     return new Response(JSON.stringify({ success: false, message: 'Not found' }), { status: 404, headers: corsHeaders });
   }
 };
