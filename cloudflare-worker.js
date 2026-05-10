@@ -1477,7 +1477,8 @@ export default {
     }
 
     // Static Assets (Admin UI) - Serve from ASSETS binding
-    if (env.ASSETS) {
+    // Only for GET/HEAD requests to avoid consuming POST body
+    if (env.ASSETS && (request.method === 'GET' || request.method === 'HEAD')) {
       try {
         // Try to serve static assets from the public directory
         const assetResponse = await env.ASSETS.fetch(request);
