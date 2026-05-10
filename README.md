@@ -245,5 +245,3 @@ Configura rate limits personalizados en el dashboard de Cloudflare.
 ## Licencia
 
 MIT
-# CI/CD Test
-CI/CD pipeline test - do., 10 de may. de 2026 11:30:03
