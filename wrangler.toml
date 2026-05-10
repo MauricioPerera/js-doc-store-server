@@ -6,6 +6,9 @@ name = "doc-store-api-prod"
 main = "cloudflare-worker.js"
 compatibility_date = "2024-01-01"
 
+# Node compatibility for npm modules
+node_compat = true
+
 # KV Namespace binding
 [[kv_namespaces]]
 binding = "DOC_STORE_KV"
