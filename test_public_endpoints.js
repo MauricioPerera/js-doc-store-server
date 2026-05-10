@@ -6,15 +6,42 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin123!';
 
 async function testPublicEndpoints() {
     console.log('══════════════════════════════════════════════════');
-    console.log('   Testing Public Endpoints with Authentication');
+    console.log('   Testing Public Endpoints');
     console.log('══════════════════════════════════════════════════');
     console.log(`API URL: ${BASE_URL}\n`);
 
     let token = null;
 
     try {
-        // Step 1: Login
-        console.log('Step 1: Login to get JWT token...');
+        // Step 1: Test WITHOUT auth (should SUCCEED - public endpoints)
+        console.log('Step 1: GET /public/tables WITHOUT auth...');
+        const tablesRes = await axios.get(`${BASE_URL}/public/tables`);
+        console.log('✅ Response:', JSON.stringify(tablesRes.data, null, 2));
+        console.log(`   Found ${tablesRes.data.tables?.length || 0} tables\n`);
+
+        // Step 2: Test Public Query WITHOUT auth
+        console.log('Step 2: GET /public/query/products WITHOUT auth...');
+        try {
+            const productsRes = await axios.get(`${BASE_URL}/public/query/products`);
+            console.log('✅ Response:', JSON.stringify(productsRes.data, null, 2));
+            console.log(`   Found ${productsRes.data.data?.length || 0} records\n`);
+        } catch (e) {
+            console.log('ℹ️ Products table may not exist or not be accessible\n');
+        }
+
+        // Step 3: Test admin endpoint WITHOUT auth (should FAIL)
+        console.log('Step 3: GET /admin/vector/stats WITHOUT auth (should fail)...');
+        try {
+            await axios.get(`${BASE_URL}/admin/vector/stats`);
+            console.log('❌ Unexpected: Admin request succeeded without auth\n');
+            process.exit(1);
+        } catch (e) {
+            console.log('✅ Expected error:', e.response?.data?.message || 'No token');
+            console.log('   Status:', e.response?.status, '\n');
+        }
+
+        // Step 4: Login to test with auth
+        console.log('Step 4: Login to get JWT token...');
         const loginRes = await axios.post(`${BASE_URL}/auth/login`, {
             email: ADMIN_EMAIL,
             password: ADMIN_PASSWORD
@@ -25,51 +52,29 @@ async function testPublicEndpoints() {
 
         const authHeaders = { Authorization: `Bearer ${token}` };
 
-        // Step 2: Test Public Tables
-        console.log('Step 2: GET /public/tables (with auth token)...');
-        const tablesRes = await axios.get(`${BASE_URL}/public/tables`, {
+        // Step 5: Test admin endpoint WITH auth (should SUCCEED)
+        console.log('Step 5: GET /admin/vector/stats WITH auth...');
+        const statsRes = await axios.get(`${BASE_URL}/admin/vector/stats`, {
             headers: authHeaders
         });
-        console.log('✅ Response:', JSON.stringify(tablesRes.data, null, 2));
-        console.log(`   Found ${tablesRes.data.tables?.length || 0} tables\n`);
+        console.log('✅ Response:', JSON.stringify(statsRes.data, null, 2));
+        console.log(`   Found ${statsRes.data.collections?.length || 0} collections\n`);
 
-        // Step 3: Test Public Query
-        console.log('Step 3: GET /public/query/products (with auth token)...');
-        try {
-            const productsRes = await axios.get(`${BASE_URL}/public/query/products`, {
-                headers: authHeaders
-            });
-            console.log('✅ Response:', JSON.stringify(productsRes.data, null, 2));
-            console.log(`   Found ${productsRes.data.data?.length || 0} records\n`);
-        } catch (e) {
-            console.log('ℹ️ Products table may not exist or not be accessible\n');
-        }
-
-        // Step 4: Test Public Query for test_collab
-        console.log('Step 4: GET /public/query/test_collab (with auth token)...');
-        try {
-            const testRes = await axios.get(`${BASE_URL}/public/query/test_collab`, {
-                headers: authHeaders
-            });
-            console.log('✅ Response:', JSON.stringify(testRes.data, null, 2));
-            console.log(`   Found ${testRes.data.data?.length || 0} records\n`);
-        } catch (e) {
-            console.log('ℹ️ Table not accessible (may require PUBLIC_TABLES config)\n');
-        }
-
-        // Step 5: Test WITHOUT auth (should fail)
-        console.log('Step 5: GET /public/tables WITHOUT auth (should fail)...');
-        try {
-            await axios.get(`${BASE_URL}/public/tables`);
-            console.log('❌ Unexpected: Request succeeded without auth\n');
-        } catch (e) {
-            console.log('✅ Expected error:', e.response?.data?.message || 'No token');
-            console.log('   Status:', e.response?.status, '\n');
-        }
+        // Step 6: Test admin endpoint WITH auth
+        console.log('Step 6: GET /admin/vector/collections WITH auth...');
+        const collsRes = await axios.get(`${BASE_URL}/admin/vector/collections`, {
+            headers: authHeaders
+        });
+        console.log('✅ Response:', JSON.stringify(collsRes.data, null, 2));
+        console.log(`   Found ${collsRes.data.collections?.length || 0} collections\n`);
 
         console.log('══════════════════════════════════════════════════');
-        console.log('   ALL PUBLIC ENDPOINT TESTS COMPLETED');
+        console.log('   ALL PUBLIC ENDPOINT TESTS PASSED');
         console.log('══════════════════════════════════════════════════');
+        console.log('\nSummary:');
+        console.log('  ✅ Public endpoints work WITHOUT authentication');
+        console.log('  ✅ Admin endpoints REQUIRE authentication');
+        console.log('  ✅ Admin endpoints work WITH valid token');
 
     } catch (e) {
         console.error('\n❌ Test failed:');
