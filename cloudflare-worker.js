@@ -4,7 +4,7 @@
  * Document database + Vector semantic search
  */
 
-import { DocStore, CloudflareKVAdapter as DocStoreKVAdapter, Auth, Table } from 'js-doc-store';
+import { DocStore, CloudflareKVAdapter as DocStoreKVAdapter, Auth, Table } from './js-doc-store.js';
 import {
   VectorStore,
   QuantizedStore,
