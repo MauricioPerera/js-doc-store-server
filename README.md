@@ -200,6 +200,28 @@ Variables de entorno para tests:
 - `ADMIN_EMAIL` - Email del admin
 - `ADMIN_PASSWORD` - Password del admin
 
+## CI/CD
+
+Automated testing and deployment with GitHub Actions:
+
+```bash
+# Setup secrets (one-time)
+./scripts/setup-github-secrets.sh
+
+# Or manually:
+git secret set CLOUDFLARE_API_TOKEN
+git secret set CLOUDFLARE_ACCOUNT_ID
+git secret set API_URL
+git secret set ADMIN_EMAIL
+git secret set ADMIN_PASSWORD
+```
+
+Ver [CI_CD_SETUP.md](./CI_CD_SETUP.md) para configuración detallada.
+
+**Workflows**:
+- **PR**: Tests + Security scan
+- **Push to master**: Tests + Security scan + Auto-deploy
+
 ## Rate Limiting
 
 El servidor implementa rate limiting en Cloudflare Workers:
