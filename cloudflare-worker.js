@@ -139,50 +139,25 @@ export default {
       }
     };
 
-    // --- PUBLIC ENDPOINTS (require auth if JWT_SECRET is configured) ---
+    // --- PUBLIC ENDPOINTS (no authentication required) ---
 
-    // GET /public/tables
+    // GET /public/tables - List publicly accessible tables
     if (path === '/public/tables' && request.method === 'GET') {
-      // Require auth if JWT_SECRET is configured
-      let user = null;
-      if (env.JWT_SECRET) {
-        const authCheck = await verifyAuth(request);
-        if (authCheck.error) {
-          return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
-        }
-        user = authCheck.user;
-      }
-
-      // Whitelist check
+      // Get list of tables from PUBLIC_TABLES env var
+      // If not set, returns empty list (no tables are public by default)
       const PUBLIC_TABLES = (env.PUBLIC_TABLES || '').split(',').filter(Boolean);
-      const isAdmin = user?.roles?.includes('admin');
 
-      const keys = await docAdapter.listKeys();
-      const tables = [...new Set(keys.filter(k => k.endsWith('.docs.json')).map(k => k.replace('.docs.json', '')))];
-      const visibleTables = isAdmin ? tables : tables.filter(t => PUBLIC_TABLES.includes(t));
-
-      return new Response(JSON.stringify({ success: true, tables: visibleTables }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true, tables: PUBLIC_TABLES }), { headers: corsHeaders });
     }
 
-    // GET /public/query/:table
+    // GET /public/query/:table - Query a publicly accessible table
     if (path.startsWith('/public/query/') && request.method === 'GET') {
-      // Require auth if JWT_SECRET is configured
-      let user = null;
-      if (env.JWT_SECRET) {
-        const authCheck = await verifyAuth(request);
-        if (authCheck.error) {
-          return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
-        }
-        user = authCheck.user;
-      }
-
-      // Whitelist check for public tables
       const PUBLIC_TABLES = (env.PUBLIC_TABLES || '').split(',').filter(Boolean);
-      const isAdmin = user?.roles?.includes('admin');
       const tableName = path.split('/').pop();
 
-      if (!isAdmin && !PUBLIC_TABLES.includes(tableName)) {
-        return new Response(JSON.stringify({ success: false, message: 'Table not accessible' }), { status: 403, headers: corsHeaders });
+      // Only allow access to whitelisted public tables
+      if (!PUBLIC_TABLES.includes(tableName)) {
+        return new Response(JSON.stringify({ success: false, message: 'Table not publicly accessible' }), { status: 403, headers: corsHeaders });
       }
 
       const table = new Table(db, tableName, { columns: [] });

@@ -94,26 +94,21 @@ async function startServer() {
         };
     }
 
-    // --- PUBLIC ENDPOINTS (require authentication) ---
+    // --- PUBLIC ENDPOINTS (no authentication required) ---
     // Whitelist of tables that can be queried publicly
     const PUBLIC_TABLES = (process.env.PUBLIC_TABLES || '').split(',').filter(Boolean);
 
-    app.get('/public/tables', authenticateJWT, (req, res) => {
-        const files = fs.readdirSync(DATA_DIR);
-        const tables = [...new Set(files.filter(f => f.endsWith('.docs.json')).map(f => f.replace('.docs.json', '')))];
-        // Only show public tables or all tables if user is admin
-        const isAdmin = req.user?.roles?.includes('admin');
-        const visibleTables = isAdmin ? tables : tables.filter(t => PUBLIC_TABLES.includes(t));
-        res.json({ success: true, tables: visibleTables });
+    app.get('/public/tables', (req, res) => {
+        // Return only the list of publicly configured tables
+        res.json({ success: true, tables: PUBLIC_TABLES });
     });
 
-    app.get('/public/query/:tableName', authenticateJWT, (req, res) => {
+    app.get('/public/query/:tableName', (req, res) => {
         const { tableName } = req.params;
-        const isAdmin = req.user?.roles?.includes('admin');
 
-        // Check if table is public or user is admin
-        if (!isAdmin && !PUBLIC_TABLES.includes(tableName)) {
-            return res.status(403).json({ success: false, message: 'Table not accessible' });
+        // Only allow access to whitelisted public tables
+        if (!PUBLIC_TABLES.includes(tableName)) {
+            return res.status(403).json({ success: false, message: 'Table not publicly accessible' });
         }
 
         const table = getTable(tableName);
