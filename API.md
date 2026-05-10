@@ -11,6 +11,7 @@ Complete REST API documentation for js-doc-store-server.
 - [Authentication](#authentication)
 - [Public Endpoints](#public-endpoints)
 - [Admin Endpoints](#admin-endpoints)
+- [Vector Search Endpoints](#-vector-search-endpoints-js-vector-store-integration)
 - [Vault Endpoints](#vault-endpoints)
 - [Error Handling](#error-handling)
 - [Rate Limits](#rate-limits)
@@ -553,6 +554,221 @@ Assign a role to a user (Admin only).
 
 ---
 
+## 🔍 Vector Search Endpoints (js-vector-store integration)
+
+Semantic search with embeddings. Supports multiple store types: `float32`, `int8`, `binary`, and `polar`.
+
+### Store Types Comparison
+
+| Store | Bytes/vec (768d) | Compression | Recall@5 | Best For |
+|-------|------------------|-------------|----------|----------|
+| `float32` | 3,072 | 1x | 100% | Maximum precision |
+| `int8` | 776 | 4x | 100% | Balance |
+| `binary` | 96 | **32x** | 85% | Maximum compression |
+| `polar` | 144 | 21x | 100% | **Best trade-off** |
+
+---
+
+### POST /admin/vector/index
+
+Index a document with its embedding vector.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "collection": "articles",
+  "id": "article-123",
+  "vector": [0.1, -0.2, 0.3, ...],
+  "text": "Article content for BM25 indexing",
+  "metadata": { "title": "AI in Healthcare", "author": "John Doe" }
+}
+```
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| collection | string | No | Collection name (default: "default") |
+| id | string | Yes | Document ID |
+| vector | number[] | Yes | Embedding array (768 dimensions) |
+| text | string | No | Text for BM25 hybrid indexing |
+| metadata | object | No | Additional metadata |
+
+---
+
+### POST /admin/vector/batch
+
+Batch index multiple vectors.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "collection": "articles",
+  "vectors": [
+    { "id": "doc-1", "vector": [0.1, -0.2, ...], "metadata": { "title": "Doc 1" } },
+    { "id": "doc-2", "vector": [0.3, -0.1, ...], "metadata": { "title": "Doc 2" } }
+  ]
+}
+```
+
+---
+
+### POST /admin/vector/search
+
+Semantic vector search.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "collection": "articles",
+  "vector": [0.1, -0.2, 0.3, ...],
+  "limit": 10,
+  "metric": "cosine",
+  "matryoshka": [128, 384, 768]
+}
+```
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| collection | string | No | Collection name (default: "default") |
+| vector | number[] | Yes | Query embedding |
+| limit | number | No | Max results (default: 10) |
+| metric | string | No | `cosine`\|`euclidean`\|`dotProduct`\|`manhattan` |
+| matryoshka | number[] | No | Multi-stage dimensions, e.g. `[128, 384, 768]` |
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": "article-123", "score": 0.92, "metadata": { "title": "AI in Healthcare" } },
+    { "id": "article-456", "score": 0.87, "metadata": { "title": "Medical AI" } }
+  ]
+}
+```
+
+---
+
+### POST /admin/vector/search-hybrid
+
+Hybrid search combining vector similarity + BM25 text relevance.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "collection": "articles",
+  "vector": [0.1, -0.2, 0.3, ...],
+  "text": "artificial intelligence in medicine",
+  "limit": 10,
+  "mode": "rrf",
+  "vectorWeight": 0.6,
+  "textWeight": 0.4
+}
+```
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| mode | string | No | `rrf` (Reciprocal Rank Fusion) or `weighted` |
+| vectorWeight | number | No | Weight for vector score (default: 0.6) |
+| textWeight | number | No | Weight for BM25 score (default: 0.4) |
+
+---
+
+### POST /admin/vector/search-cross
+
+Cross-collection search with score normalization.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "collections": ["articles", "products", "docs"],
+  "vector": [0.1, -0.2, 0.3, ...],
+  "limit": 10
+}
+```
+
+---
+
+### GET /admin/vector/collections
+
+List all vector collections with document counts.
+
+**Authentication:** Required
+
+**Response:**
+```json
+{
+  "success": true,
+  "collections": [
+    { "name": "articles", "count": 1543 },
+    { "name": "products", "count": 892 }
+  ]
+}
+```
+
+---
+
+### GET /admin/vector/stats
+
+Vector store statistics and configuration.
+
+**Authentication:** Required
+
+**Response:**
+```json
+{
+  "success": true,
+  "config": {
+    "dimensions": 768,
+    "storeType": "binary"
+  },
+  "collections": ["articles", "products"],
+  "stats": { ... }
+}
+```
+
+---
+
+### DELETE /admin/vector/:collection/:id
+
+Remove a vector from the index.
+
+**Authentication:** Required
+
+**Example:**
+```bash
+curl -X DELETE https://js-doc-store-server.rckflr.workers.dev/admin/vector/articles/article-123 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### POST /admin/vector/drop
+
+Delete an entire vector collection.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "collection": "articles"
+}
+```
+
+---
+
 ## 🔒 Vault Endpoints
 
 Secure secret storage.
@@ -678,7 +894,87 @@ curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/query \
   -d '{"tableName":"products","filter":{}}'
 ```
 
+### Vector Search Flow
+
+```bash
+# Get token (same as above)
+TOKEN=$(curl -s -X POST ...)
+
+# 1. Index a document with embedding
+EMBEDDING='[0.1, -0.2, 0.3, ...]'  # From your embedding model
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/index \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"collection\": \"articles\",
+    \"id\": \"article-001\",
+    \"vector\": $EMBEDDING,
+    \"metadata\": { \"title\": \"AI in Medicine\" }
+  }"
+
+# 2. Semantic search
+QUERY_EMBEDDING='[0.15, -0.18, 0.25, ...]'
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/search \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"collection\": \"articles\",
+    \"vector\": $QUERY_EMBEDDING,
+    \"limit\": 5
+  }"
+
+# 3. Hybrid search (vector + text)
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/search-hybrid \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"collection\": \"articles\",
+    \"vector\": $QUERY_EMBEDDING,
+    \"text\": \"artificial intelligence medicine\",
+    \"limit\": 10
+  }"
+
+# 4. Cross-collection search
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/search-cross \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"collections\": [\"articles\", \"docs\", \"products\"],
+    \"vector\": $QUERY_EMBEDDING,
+    \"limit\": 10
+  }"
+
+# 5. List collections
+curl https://js-doc-store-server.rckflr.workers.dev/admin/vector/collections \
+  -H "Authorization: Bearer $TOKEN"
+
+# 6. Delete a vector
+curl -X DELETE https://js-doc-store-server.rckflr.workers.dev/admin/vector/articles/article-001 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### With Cloudflare Workers AI Embeddings
+
+```bash
+# Generate embedding with Workers AI
+EMBEDDING=$(curl -s "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/ai/run/@cf/google/embeddinggemma-300m" \
+  -H "Authorization: Bearer $CF_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"text":["machine learning in healthcare"]}' | jq '.result.data[0]')
+
+# Index it
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/index \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"collection\": \"articles\",
+    \"id\": \"doc-1\",
+    \"vector\": $EMBEDDING,
+    \"metadata\": { \"source\": \"workers-ai\" }
+  }"
+```
+
 ---
 
 **Last Updated**: 2024
-**Version**: 1.0.0
+**Version**: 1.1.0

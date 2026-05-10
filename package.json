@@ -1,9 +1,9 @@
 {
   "name": "js-doc-store-server",
-  "version": "1.0.0",
-  "description": "REST API server for js-doc-store with JWT auth and multi-agent collaboration",
+  "version": "1.1.0",
+  "description": "REST API server for js-doc-store with JWT auth, vector semantic search, and multi-agent collaboration",
   "main": "server.js",
-  "keywords": ["rest-api", "database", "document-store", "multi-agent", "jwt", "crud", "cloudflare-workers"],
+  "keywords": ["rest-api", "database", "document-store", "vector-store", "semantic-search", "embeddings", "multi-agent", "jwt", "crud", "cloudflare-workers"],
   "repository": {
     "type": "git",
     "url": "https://github.com/MauricioPerera/js-doc-store-server"

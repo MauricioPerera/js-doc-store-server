@@ -14,9 +14,18 @@ Server runs on `http://localhost:3000`
 ## 📚 Documentación
 
 - **[📖 API Reference Completa](./API.md)** - Documentación detallada de todos los endpoints con ejemplos
+- **[🔍 Vector Search](./API.md#-vector-search-endpoints-js-vector-store-integration)** - Búsqueda semántica con embeddings
 - [API Endpoints](#api-endpoints)
 - [Autenticación](#autenticación)
 - [Configuración](#configuración)
+
+### Características del Vector Store
+
+- **4 tipos de store**: `float32` (precisión máxima), `int8` (4x compresión), `binary` (32x compresión), `polar` (21x compresión, 100% recall)
+- **Búsqueda matryoshka**: Multi-stage dimensional search `[128, 384, 768]`
+- **Hybrid search**: Combinación de similitud vectorial + BM25
+- **Cross-collection**: Score normalization entre colecciones
+- **Zero dependencies**: js-vector-store incluido en el worker
 
 ---
 
@@ -47,9 +56,21 @@ Ver [DEPLOY.md](./DEPLOY.md) para instrucciones detalladas de deploy.
 - `POST /admin/insert` - Insertar documento
 - `POST /admin/query` - Query con filtros
 - `POST /admin/update` - Actualizar documentos
+- `POST /admin/remove` - Eliminar documentos
 - `POST /admin/aggregate` - Pipeline de agregación
 - `POST /admin/create-view` - Crear vista
 - `POST /admin/deploy-template` - Deploy template
+
+### Vector Search (requiere JWT)
+- `POST /admin/vector/index` - Indexar vector con embedding
+- `POST /admin/vector/batch` - Indexar múltiples vectores
+- `POST /admin/vector/search` - Búsqueda semántica
+- `POST /admin/vector/search-hybrid` - Hybrid (vector + BM25)
+- `POST /admin/vector/search-cross` - Cross-collection search
+- `GET /admin/vector/collections` - Listar colecciones
+- `GET /admin/vector/stats` - Estadísticas del vector store
+- `DELETE /admin/vector/:collection/:id` - Eliminar vector
+- `POST /admin/vector/drop` - Eliminar colección
 
 ### Vault
 - `POST /admin/vault/add` - Guardar secreto
