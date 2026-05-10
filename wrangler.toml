@@ -1,18 +1,19 @@
 # Cloudflare Workers Configuration for js-doc-store-server
+# Replace the KV namespace id with your actual ID after running:
+# npm run cf:kv:create
 
 name = "js-doc-store-server"
 main = "cloudflare-worker.js"
 compatibility_date = "2024-01-01"
 
-# KV Namespace binding
+# KV Namespace binding - UPDATE THIS ID after creating the namespace
 [[kv_namespaces]]
 binding = "DOC_STORE_KV"
-id = "your-kv-namespace-id-here"
+id = "YOUR_KV_NAMESPACE_ID_HERE"
 
-# Environment variables
+# Environment variables (public)
 [vars]
-# JWT_SECRET should be set via wrangler secret
-# JWT_SECRET = "your-secret-here"
+NODE_ENV = "production"
 
-# Secrets (use wrangler secret put JWT_SECRET)
-# wrangler secret put JWT_SECRET
+# Secrets (use: wrangler secret put JWT_SECRET)
+# Do NOT add secrets here - use the CLI command instead

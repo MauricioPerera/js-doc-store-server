@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "REST API server for js-doc-store with JWT auth and multi-agent collaboration",
   "main": "server.js",
-  "keywords": ["rest-api", "database", "document-store", "multi-agent", "jwt", "crud"],
+  "keywords": ["rest-api", "database", "document-store", "multi-agent", "jwt", "crud", "cloudflare-workers"],
   "repository": {
     "type": "git",
     "url": "https://github.com/MauricioPerera/js-doc-store-server"
@@ -14,10 +14,17 @@
     "express": "^4.18.2",
     "js-doc-store": "^1.2.0"
   },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node test_collaboration.js"
+    "test": "node test_collaboration.js",
+    "cf:dev": "wrangler dev",
+    "cf:deploy": "wrangler deploy",
+    "cf:kv:create": "wrangler kv:namespace create DOC_STORE_KV",
+    "cf:secret": "wrangler secret put JWT_SECRET"
   },
   "engines": {
     "node": ">=16.0.0"
