@@ -15,6 +15,51 @@ const App = {
   // DOM Elements
   elements: {},
 
+  // Toast Notification System
+  toast(type, title, message, duration = 5000) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+
+    const icons = {
+      success: '✅',
+      error: '❌',
+      warning: '⚠️',
+      info: 'ℹ️'
+    };
+
+    toast.innerHTML = `
+      <div class="toast-icon">${icons[type] || 'ℹ️'}</div>
+      <div class="toast-content">
+        <div class="toast-title">${title}</div>
+        ${message ? `<div class="toast-message">${message}</div>` : ''}
+      </div>
+      <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+    `;
+
+    container.appendChild(toast);
+
+    // Auto remove
+    setTimeout(() => {
+      if (toast.parentElement) {
+        toast.classList.add('hiding');
+        setTimeout(() => toast.remove(), 300);
+      }
+    }, duration);
+  },
+
+  // Skeleton loader helpers
+  showSkeleton(container, count = 3, type = 'card') {
+    container.innerHTML = Array(count).fill(0).map(() =>
+      `<div class="card skeleton ${type === 'card' ? 'skeleton-card' : ''}">
+        <div class="skeleton-text" style="width: 60%"></div>
+        <div class="skeleton-text" style="width: 40%"></div>
+      </div>`
+    ).join('');
+  },
+
   init() {
     this.cacheElements();
     this.bindEvents();
@@ -40,10 +85,15 @@ const App = {
     this.elements.loginError = document.getElementById('login-error');
 
     // Navigation
-    this.elements.navTabs = document.querySelectorAll('.nav-tab');
+    this.elements.navTabs = document.querySelectorAll('.nav-tab, .nav-item');
     this.elements.tabContents = document.querySelectorAll('.tab-content');
     this.elements.btnLogout = document.getElementById('btn-logout');
     this.elements.btnTheme = document.getElementById('btn-theme');
+    this.elements.userName = document.getElementById('user-name');
+    this.elements.userAvatar = document.getElementById('user-avatar');
+    this.elements.userRole = document.getElementById('user-role');
+    this.elements.breadcrumbCurrent = document.getElementById('breadcrumb-current');
+    this.elements.tableCount = document.getElementById('table-count');
 
     // Tables Tab
     this.elements.tablesGrid = document.getElementById('tables-grid');
@@ -195,6 +245,7 @@ const App = {
   },
 
   logout() {
+    this.toast('info', 'Logged out', 'See you next time!');
     this.token = '';
     this.user = null;
     this.tables = [];
@@ -226,7 +277,22 @@ const App = {
     if (this.user) {
       this.elements.settingsUser.textContent = this.user.email;
       this.elements.settingsRoles.textContent = this.user.roles?.join(', ') || 'user';
+
+      // Update sidebar user info
+      if (this.elements.userName) {
+        this.elements.userName.textContent = this.user.email;
+      }
+      if (this.elements.userAvatar) {
+        this.elements.userAvatar.textContent = this.user.email?.charAt(0).toUpperCase() || 'U';
+      }
+      if (this.elements.userRole) {
+        const role = this.user.roles?.find(r => r === 'admin') || this.user.roles?.[0] || 'User';
+        this.elements.userRole.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+      }
     }
+
+    // Show toast
+    this.toast('success', 'Welcome back!', `Logged in as ${this.user?.email}`);
   },
 
   switchTab(tabName) {
@@ -239,6 +305,18 @@ const App = {
     this.elements.tabContents.forEach(content => {
       content.classList.toggle('active', content.id === `tab-${tabName}`);
     });
+
+    // Update breadcrumb
+    const tabNames = {
+      tables: 'Tables',
+      vectors: 'Vector Search',
+      query: 'Query Builder',
+      settings: 'Settings',
+      help: 'Documentation'
+    };
+    if (this.elements.breadcrumbCurrent) {
+      this.elements.breadcrumbCurrent.textContent = tabNames[tabName] || tabName;
+    }
 
     // Load tab specific data
     if (tabName === 'tables') {
@@ -271,15 +349,33 @@ const App = {
   },
 
   renderTables() {
+    // Update sidebar badge
+    if (this.elements.tableCount) {
+      this.elements.tableCount.textContent = this.tables.length;
+    }
+
     if (this.tables.length === 0) {
-      this.elements.tablesGrid.innerHTML = '<div class="empty-state">No tables yet. Create your first table!</div>';
+      this.elements.tablesGrid.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">📊</div>
+          <div class="empty-state-title">No tables yet</div>
+          <p class="empty-state-description">Create your first table to start storing data</p>
+          <button class="btn btn-primary" onclick="App.openModal('modal-create-table')">
+            + Create Table
+          </button>
+        </div>`;
       return;
     }
 
-    this.elements.tablesGrid.innerHTML = this.tables.map(table => `
-      <div class="table-card" onclick="App.viewTable('${table}')">
-        <h3>${table}</h3>
-        <p>Click to view and manage data</p>
+    this.elements.tablesGrid.innerHTML = this.tables.map((table, index) => `
+      <div class="card card-hover" onclick="App.viewTable('${table}')">
+        <div class="card-header">
+          <div class="card-icon table-icon">📊</div>
+          <div class="card-info">
+            <div class="card-title">${table}</div>
+            <div class="card-description">Click to view and manage data</div>
+          </div>
+        </div>
       </div>
     `).join('');
   },
@@ -302,14 +398,33 @@ const App = {
 
   renderCollections() {
     if (this.collections.length === 0) {
-      this.elements.collectionsList.innerHTML = '<div class="empty-state">No collections</div>';
+      this.elements.collectionsList.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">🧠</div>
+          <div class="empty-state-title">No collections</div>
+          <p class="empty-state-description">Vector collections will appear here once you start indexing</p>
+        </div>`;
       return;
     }
 
     this.elements.collectionsList.innerHTML = this.collections.map(col => `
-      <div class="collection-item">
-        <span class="collection-name">${col.name}</span>
-        <span class="collection-count">${col.count} docs</span>
+      <div class="card card-hover">
+        <div class="card-header">
+          <div class="card-icon collection-icon">🧠</div>
+          <div class="card-info">
+            <div class="card-title">${col.name}</div>
+            <div class="card-description">${col.count} documents indexed</div>
+          </div>
+        </div>
+        <div class="card-footer">
+          <div class="card-stats">
+            <div class="card-stat">
+              <span>📝</span>
+              <span class="card-stat-value">${col.count}</span>
+              <span>docs</span>
+            </div>
+          </div>
+        </div>
       </div>
     `).join('');
   },

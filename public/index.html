@@ -10,204 +10,346 @@
     <div id="app">
         <!-- Login Screen -->
         <div id="login-screen" class="screen active">
-            <div class="login-container">
-                <h1>🔧 js-doc-store</h1>
-                <p class="subtitle">Document Database Admin</p>
+            <div class="login-left">
+                <div class="login-container">
+                    <div class="login-header">
+                        <h1>js-doc-store</h1>
+                        <p class="subtitle">Sign in to your admin dashboard</p>
+                    </div>
 
-                <div class="form-group">
-                    <label>API URL</label>
-                    <input type="url" id="api-url" placeholder="https://your-worker.workers.dev" value="https://doc-store-api-prod.rckflr.workers.dev">
+                    <div class="login-card">
+                        <div class="form-group">
+                            <label>API URL</label>
+                            <input type="url" id="api-url" placeholder="https://your-worker.workers.dev" value="https://doc-store-api-prod.rckflr.workers.dev">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Email address</label>
+                            <input type="email" id="email" placeholder="name@company.com" autocomplete="email">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
+                        </div>
+
+                        <button id="btn-login" class="btn btn-primary btn-full btn-lg">Sign In</button>
+                        <div id="login-error" class="error-message"></div>
+
+                        <div class="quick-login">
+                            <p>Demo credentials available</p>
+                            <button class="quick-login-btn" onclick="quickLogin()">
+                                <span>✨</span> Quick Login
+                            </button>
+                        </div>
+                    </div>
                 </div>
-
-                <div class="form-group">
-                    <label>Email</label>
-                    <input type="email" id="email" placeholder="admin@example.com">
-                </div>
-
-                <div class="form-group">
-                    <label>Password</label>
-                    <input type="password" id="password" placeholder="••••••••">
-                </div>
-
-                <button id="btn-login" class="btn-primary">Login</button>
-                <div id="login-error" class="error-message"></div>
-
-                <div class="quick-login">
-                    <p>Quick Login (demo):</p>
-                    <button class="btn-secondary" onclick="quickLogin()">admin@example.com / Admin123!</button>
+            </div>
+            <div class="login-right">
+                <div class="login-hero">
+                    <div class="login-hero-icon">🗄️</div>
+                    <h2>Document Database Admin</h2>
+                    <p>Manage your data, run vector searches, and build queries with an intuitive modern interface.</p>
                 </div>
             </div>
         </div>
 
         <!-- Main Dashboard -->
         <div id="dashboard-screen" class="screen">
-            <header class="app-header">
-                <div class="header-left">
-                    <h1>🔧 js-doc-store</h1>
-                    <nav class="nav-tabs">
-                        <button class="nav-tab active" data-tab="tables">📊 Tables</button>
-                        <button class="nav-tab" data-tab="vectors">🔍 Vector Search</button>
-                        <button class="nav-tab" data-tab="query">⚡ Query</button>
-                        <button class="nav-tab" data-tab="settings">⚙️ Settings</button>
+            <div class="app-layout">
+                <!-- Sidebar -->
+                <aside class="sidebar">
+                    <div class="sidebar-header">
+                        <span class="sidebar-logo">🗄️</span>
+                        <span class="sidebar-title">js-doc-store</span>
+                    </div>
+
+                    <nav class="sidebar-nav">
+                        <div class="nav-section">
+                            <div class="nav-section-title">Data</div>
+                            <button class="nav-item active" data-tab="tables">
+                                <span class="nav-item-icon">📊</span>
+                                Tables
+                                <span class="nav-item-badge" id="table-count">0</span>
+                            </button>
+                            <button class="nav-item" data-tab="vectors">
+                                <span class="nav-item-icon">🔍</span>
+                                Vector Search
+                            </button>
+                            <button class="nav-item" data-tab="query">
+                                <span class="nav-item-icon">⚡</span>
+                                Query Builder
+                            </button>
+                        </div>
+
+                        <div class="nav-section">
+                            <div class="nav-section-title">System</div>
+                            <button class="nav-item" data-tab="settings">
+                                <span class="nav-item-icon">⚙️</span>
+                                Settings
+                            </button>
+                            <button class="nav-item" data-tab="help">
+                                <span class="nav-item-icon">❓</span>
+                                Documentation
+                            </button>
+                        </div>
                     </nav>
+
+                    <div class="sidebar-footer">
+                        <div class="user-menu" id="user-menu">
+                            <div class="user-avatar" id="user-avatar">U</div>
+                            <div class="user-info">
+                                <div class="user-name" id="user-name">User</div>
+                                <div class="user-role" id="user-role">Admin</div>
+                            </div>
+                            <button class="user-menu-btn" onclick="App.logout()" title="Logout">🚪</button>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- Main Content -->
+                <div class="main-content">
+                    <!-- Top Header -->
+                    <header class="top-header">
+                        <nav class="breadcrumb">
+                            <a href="#">Home</a>
+                            <span class="breadcrumb-separator">/</span>
+                            <span class="breadcrumb-current" id="breadcrumb-current">Tables</span>
+                        </nav>
+                        <div class="header-actions">
+                            <div class="status-indicator" id="connection-status">Connected</div>
+                            <button class="icon-btn" id="btn-theme" title="Toggle Theme">🌙</button>
+                            <button class="icon-btn" id="btn-notifications" title="Notifications">🔔</button>
+                        </div>
+                    </header>
+
+                    <!-- Page Content -->
+                    <main class="page-content">
+                        <!-- Tables Tab -->
+                        <div id="tab-tables" class="tab-content active">
+                            <div class="page-header">
+                                <div class="page-header-row">
+                                    <div>
+                                        <h1 class="page-title">Tables</h1>
+                                        <p class="page-description">Manage your database tables and collections</p>
+                                    </div>
+                                    <button id="btn-create-table" class="btn btn-primary">
+                                        <span>+</span> Create Table
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div id="tables-grid" class="card-grid">
+                                <div class="card skeleton skeleton-card"></div>
+                                <div class="card skeleton skeleton-card"></div>
+                                <div class="card skeleton skeleton-card"></div>
+                            </div>
+                        </div>
+
+                        <!-- Vector Search Tab -->
+                        <div id="tab-vectors" class="tab-content">
+                            <div class="page-header">
+                                <div class="page-header-row">
+                                    <div>
+                                        <h1 class="page-title">Vector Search</h1>
+                                        <p class="page-description">Search by natural language with semantic embeddings</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="search-box">
+                                        <input type="text" id="vector-query" placeholder="e.g., 'machine learning articles'">
+                                        <select id="vector-collection">
+                                            <option value="">All Collections</option>
+                                        </select>
+                                        <button id="btn-vector-search" class="btn btn-primary">Search</button>
+                                    </div>
+                                </div>
+                                <div class="card-footer">
+                                    <div class="vector-options">
+                                        <label>
+                                            <span>Limit:</span>
+                                            <input type="number" id="vector-limit" value="10" min="1" max="100">
+                                        </label>
+                                        <label>
+                                            <span>Search Type:</span>
+                                            <select id="vector-type">
+                                                <option value="cosine">Cosine Similarity</option>
+                                                <option value="hybrid">Hybrid (Vector + BM25)</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="vector-results" class="results-container">
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">🔍</div>
+                                    <div class="empty-state-title">Start searching</div>
+                                    <p class="empty-state-description">Enter a natural language query above to find semantically similar content</p>
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="card-info">
+                                        <div class="card-title">Collections</div>
+                                        <div class="card-description">Available vector collections</div>
+                                    </div>
+                                </div>
+                                <div id="collections-list" class="card-grid">
+                                    <div class="card skeleton skeleton-card"></div>
+                                    <div class="card skeleton skeleton-card"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Query Tab -->
+                        <div id="tab-query" class="tab-content">
+                            <div class="page-header">
+                                <div class="page-header-row">
+                                    <div>
+                                        <h1 class="page-title">Query Builder</h1>
+                                        <p class="page-description">Build and execute advanced queries with filters</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="card-info">
+                                        <div class="card-title">Query Parameters</div>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label>Table</label>
+                                            <select id="query-table">
+                                                <option value="">Select table...</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Limit</label>
+                                            <input type="number" id="query-limit" value="100" min="1" max="10000">
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label>Filter (JSON)</label>
+                                        <textarea id="query-filter" rows="4" placeholder='{"status": "active", "age": {"$gte": 18}}'></textarea>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label>Sort</label>
+                                        <div class="sort-row">
+                                            <input type="text" id="query-sort-field" placeholder="Field name">
+                                            <select id="query-sort-order">
+                                                <option value="asc">Ascending</option>
+                                                <option value="desc">Descending</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="card-footer">
+                                    <button id="btn-run-query" class="btn btn-primary">
+                                        ▶ Run Query
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div id="query-results" class="results-container">
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">⚡</div>
+                                    <div class="empty-state-title">Build your query</div>
+                                    <p class="empty-state-description">Configure query parameters above and click Run to see results</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Settings Tab -->
+                        <div id="tab-settings" class="tab-content">
+                            <div class="page-header">
+                                <div class="page-header-row">
+                                    <div>
+                                        <h1 class="page-title">Settings</h1>
+                                        <p class="page-description">Configure your admin dashboard preferences</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card-grid">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <div class="card-icon">🔌</div>
+                                        <div class="card-info">
+                                            <div class="card-title">Connection</div>
+                                            <div class="card-description">API and authentication details</div>
+                                        </div>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="setting-item">
+                                            <span>API URL</span>
+                                            <code id="settings-api-url">-</code>
+                                        </div>
+                                        <div class="setting-item">
+                                            <span>User</span>
+                                            <span id="settings-user">-</span>
+                                        </div>
+                                        <div class="setting-item">
+                                            <span>Roles</span>
+                                            <span id="settings-roles">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="card">
+                                    <div class="card-header">
+                                        <div class="card-icon collection-icon">🧠</div>
+                                        <div class="card-info">
+                                            <div class="card-title">Vector Store</div>
+                                            <div class="card-description">Embedding configuration</div>
+                                        </div>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="setting-item">
+                                            <span>Dimensions</span>
+                                            <span>768</span>
+                                        </div>
+                                        <div class="setting-item">
+                                            <span>Store Type</span>
+                                            <span class="table-cell-badge">binary</span>
+                                        </div>
+                                        <div class="setting-item">
+                                            <span>Max Collections</span>
+                                            <span>50</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="card">
+                                    <div class="card-header">
+                                        <div class="card-icon">🎨</div>
+                                        <div class="card-info">
+                                            <div class="card-title">Appearance</div>
+                                            <div class="card-description">Customize your view</div>
+                                        </div>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="setting-item">
+                                            <span>Theme</span>
+                                            <button id="btn-toggle-theme" class="btn btn-secondary">Switch to Light</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
                 </div>
-                <div class="header-right">
-                    <span id="connection-status" class="status-badge">🟢 Connected</span>
-                    <button id="btn-logout" class="btn-icon" title="Logout">🚪</button>
-                    <button id="btn-theme" class="btn-icon" title="Toggle Theme">🌙</button>
-                </div>
-            </header>
-
-            <main class="app-main">
-                <!-- Tables Tab -->
-                <div id="tab-tables" class="tab-content active">
-                    <div class="section-header">
-                        <h2>Tables</h2>
-                        <button id="btn-create-table" class="btn-primary">+ Create Table</button>
-                    </div>
-
-                    <div id="tables-grid" class="tables-grid">
-                        <div class="loading">Loading tables...</div>
-                    </div>
-                </div>
-
-                <!-- Vector Search Tab -->
-                <div id="tab-vectors" class="tab-content">
-                    <div class="section-header">
-                        <h2>🔍 Vector Search</h2>
-                    </div>
-
-                    <div class="vector-search-container">
-                        <div class="search-box">
-                            <input type="text" id="vector-query" placeholder="Search by natural language (e.g., 'machine learning articles')">
-                            <select id="vector-collection">
-                                <option value="">All Collections</option>
-                            </select>
-                            <button id="btn-vector-search" class="btn-primary">Search</button>
-                        </div>
-
-                        <div class="vector-options">
-                            <label>
-                                <span>Limit:</span>
-                                <input type="number" id="vector-limit" value="10" min="1" max="100">
-                            </label>
-                            <label>
-                                <span>Type:</span>
-                                <select id="vector-type">
-                                    <option value="cosine">Cosine Similarity</option>
-                                    <option value="hybrid">Hybrid (Vector + BM25)</option>
-                                </select>
-                            </label>
-                        </div>
-
-                        <div id="vector-results" class="results-container">
-                            <div class="empty-state">
-                                <p>Enter a query to search</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="collections-info">
-                        <h3>Collections</h3>
-                        <div id="collections-list" class="collections-list"></div>
-                    </div>
-                </div>
-
-                <!-- Query Tab -->
-                <div id="tab-query" class="tab-content">
-                    <div class="section-header">
-                        <h2>⚡ Advanced Query</h2>
-                    </div>
-
-                    <div class="query-builder">
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Table</label>
-                                <select id="query-table">
-                                    <option value="">Select table...</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Limit</label>
-                                <input type="number" id="query-limit" value="100" min="1" max="10000">
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Filter (JSON)</label>
-                            <textarea id="query-filter" rows="4" placeholder='{"status": "active", "age": {"$gte": 18}}'></textarea>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Sort</label>
-                            <div class="sort-row">
-                                <input type="text" id="query-sort-field" placeholder="Field name">
-                                <select id="query-sort-order">
-                                    <option value="asc">Ascending</option>
-                                    <option value="desc">Descending</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <button id="btn-run-query" class="btn-primary">Run Query</button>
-                    </div>
-
-                    <div id="query-results" class="results-container">
-                        <div class="empty-state">
-                            <p>Build a query and click Run</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Settings Tab -->
-                <div id="tab-settings" class="tab-content">
-                    <div class="section-header">
-                        <h2>⚙️ Settings</h2>
-                    </div>
-
-                    <div class="settings-grid">
-                        <div class="settings-card">
-                            <h3>Connection</h3>
-                            <div class="setting-item">
-                                <span>API URL</span>
-                                <code id="settings-api-url">-</code>
-                            </div>
-                            <div class="setting-item">
-                                <span>User</span>
-                                <span id="settings-user">-</span>
-                            </div>
-                            <div class="setting-item">
-                                <span>Roles</span>
-                                <span id="settings-roles">-</span>
-                            </div>
-                        </div>
-
-                        <div class="settings-card">
-                            <h3>Vector Store</h3>
-                            <div class="setting-item">
-                                <span>Dimensions</span>
-                                <span>768</span>
-                            </div>
-                            <div class="setting-item">
-                                <span>Store Type</span>
-                                <span>binary</span>
-                            </div>
-                            <div class="setting-item">
-                                <span>Max Collections</span>
-                                <span>50</span>
-                            </div>
-                        </div>
-
-                        <div class="settings-card">
-                            <h3>Appearance</h3>
-                            <div class="setting-item">
-                                <span>Theme</span>
-                                <button id="btn-toggle-theme" class="btn-secondary">Switch to Light</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </main>
+            </div>
         </div>
 
         <!-- Create Table Modal -->
@@ -271,6 +413,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
 
     <script src="app.js"></script>
 </body>
