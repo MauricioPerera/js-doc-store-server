@@ -497,7 +497,7 @@ export default {
         vectorStore.flush();
         await vectorAdapter.persist();
 
-        return new Response(JSON.stringify({ success: true, indexed }), { headers: corsHeaders };
+        return new Response(JSON.stringify({ success: true, indexed }), { headers: corsHeaders });
       } catch (e) {
         return new Response(JSON.stringify({ success: false, message: e.message }), { status: 400, headers: corsHeaders });
       }
