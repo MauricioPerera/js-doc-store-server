@@ -88,6 +88,60 @@ curl https://js-doc-store-server.rckflr.workers.dev/public/query/users
 
 ## 🔑 Authentication Endpoints
 
+### POST /auth/bootstrap
+
+Create the first admin user when the system has no users. This endpoint only works when there are zero registered users in the database.
+
+**Request Body:**
+```json
+{
+  "email": "admin@example.com",
+  "password": "SecureAdminPassword123!",
+  "name": "Administrator"
+}
+```
+
+**Validation Rules:**
+- `email`: Valid email format
+- `password`: Minimum 6 characters
+- `name`: Optional
+
+**Request:**
+```bash
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/auth/bootstrap \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@example.com",
+    "password": "Admin123!",
+    "name": "Administrator"
+  }'
+```
+
+**Success Response (201):**
+```json
+{
+  "success": true,
+  "message": "First admin created",
+  "user": {
+    "_id": "admin-abc123",
+    "email": "admin@example.com",
+    "name": "Administrator",
+    "roles": ["admin"],
+    "createdAt": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+**Error Response (403):**
+```json
+{
+  "success": false,
+  "message": "Users already exist. Use /auth/register instead."
+}
+```
+
+---
+
 ### POST /auth/register
 
 Register a new user.
@@ -769,6 +823,250 @@ Delete an entire vector collection.
 
 ---
 
+### GET /admin/vector/:collection/:id
+
+Get a specific vector by ID.
+
+**Authentication:** Required
+
+**Example:**
+```bash
+curl https://js-doc-store-server.rckflr.workers.dev/admin/vector/articles/article-123 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "id": "article-123",
+  "vector": [0.1, -0.2, 0.3, ...],
+  "metadata": { "title": "AI in Healthcare" }
+}
+```
+
+---
+
+## 🤖 Embedding Endpoints (Google Gemma 300M)
+
+Automatic text-to-vector generation using Cloudflare AI with Google's Gemma 300M model. Supports Matryoshka embeddings (configurable dimensions: 64-2048).
+
+### POST /admin/embed
+
+Generate embeddings for any text.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "text": "Machine learning is a subset of artificial intelligence",
+  "dimensions": 768
+}
+```
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| text | string | Yes | Text to embed |
+| dimensions | number | No | Output dimensions: 64, 256, 768, or 2048 (default: 768) |
+
+**Request:**
+```bash
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/embed \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Machine learning is a subset of AI",
+    "dimensions": 768
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "model": "@cf/google/embeddinggemma-300m",
+  "dimensions": 768,
+  "embedding": [-0.0748, 0.0031, 0.0182, ...]
+}
+```
+
+---
+
+### POST /admin/vector/index-with-text
+
+Index a document with auto-generated embedding from text content.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "collection": "documents",
+  "id": "doc-123",
+  "text": "This is the document content to be embedded",
+  "metadata": { "category": "tech", "author": "John" },
+  "dimensions": 768
+}
+```
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| collection | string | No | Collection name (default: "default") |
+| id | string | Yes | Document ID |
+| text | string | Yes | Text content to embed |
+| metadata | object | No | Additional metadata |
+| dimensions | number | No | Embedding dimensions (default: 768) |
+
+**Request:**
+```bash
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/index-with-text \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "collection": "articles",
+    "id": "article-123",
+    "text": "Transformers revolutionized NLP...",
+    "metadata": { "author": "John", "category": "AI" },
+    "dimensions": 768
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "id": "article-123",
+  "textLength": 32,
+  "embeddingDimensions": 768,
+  "model": "@cf/google/embeddinggemma-300m"
+}
+```
+
+---
+
+### POST /admin/vector/search-by-text
+
+Search vectors using natural language query (auto-embeds the query text).
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "collection": "documents",
+  "query": "artificial intelligence research",
+  "limit": 10,
+  "dimensions": 768,
+  "metric": "cosine"
+}
+```
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| collection | string | No | Collection name (default: "default") |
+| query | string | Yes | Natural language query |
+| limit | number | No | Max results (default: 10) |
+| dimensions | number | No | Query embedding dimensions (default: 768) |
+| metric | string | No | Distance metric: `cosine`, `euclidean`, `dotProduct` |
+
+**Request:**
+```bash
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/search-by-text \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "collection": "articles",
+    "query": "neural network architecture",
+    "limit": 5,
+    "dimensions": 768
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "query": "neural network architecture",
+  "embeddingDimensions": 768,
+  "results": [
+    { "id": "article-123", "score": 0.92, "metadata": { "title": "Transformers in NLP" } },
+    { "id": "article-456", "score": 0.87, "metadata": { "title": "Deep Learning Basics" } }
+  ]
+}
+```
+
+---
+
+### POST /admin/vector/batch-index-with-text
+
+Batch index multiple documents with auto-generated embeddings.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "collection": "articles",
+  "textField": "content",
+  "documents": [
+    { "id": "1", "content": "First article text...", "author": "Alice" },
+    { "id": "2", "content": "Second article text...", "author": "Bob" }
+  ],
+  "dimensions": 768
+}
+```
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| collection | string | No | Collection name (default: "default") |
+| textField | string | Yes | Field name containing text to embed |
+| documents | array | Yes | Array of documents with IDs |
+| dimensions | number | No | Embedding dimensions (default: 768) |
+
+**Request:**
+```bash
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/batch-index-with-text \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "collection": "articles",
+    "textField": "content",
+    "documents": [
+      { "id": "doc-1", "content": "Machine learning basics...", "category": "AI" },
+      { "id": "doc-2", "content": "Deep learning explained...", "category": "AI" }
+    ],
+    "dimensions": 768
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "indexed": 2,
+  "collection": "articles",
+  "dimensions": 768
+}
+```
+
+### Matryoshka Embeddings
+
+Support for configurable dimensions (truncating from 2048):
+
+| Dimensions | Use Case | Speed | Precision |
+|------------|----------|-------|-----------|
+| 64 | Mobile/Edge | ⚡⚡⚡ | ⭐⭐ |
+| 256 | Web apps | ⚡⚡⚡ | ⭐⭐⭐ |
+| 768 | Standard search | ⚡⚡ | ⭐⭐⭐⭐ |
+| 2048 | Maximum quality | ⚡ | ⭐⭐⭐⭐⭐ |
+
+---
+
 ## 🔒 Vault Endpoints
 
 Secure secret storage.
@@ -820,8 +1118,67 @@ Execute an HTTP request using a stored secret.
   "secretId": "stripe-api-key",
   "url": "https://api.stripe.com/v1/customers",
   "method": "GET",
-  "body": {}
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": {},
+  "headerType": "bearer"
 }
+```
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| secretId | string | Yes | ID of the stored secret |
+| url | string | Yes | Target URL |
+| method | string | Yes | HTTP method: GET, POST, PUT, DELETE, etc. |
+| headers | object | No | Additional headers to include |
+| body | object/string | No | Request body |
+| headerType | string | No | How to send the secret (default: "bearer") |
+
+**Header Types:**
+- `bearer` - Sends as `Authorization: Bearer {secret}`
+- `basic` - Sends as `Authorization: Basic {base64(secret)}`
+- `header` - Sends in custom header (requires `headerName`)
+- `query` - Sends as query parameter (requires `paramName`)
+- `body` - Includes in request body
+
+**Example with headerType:**
+```bash
+# Bearer token (default)
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vault/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "secretId": "api-key",
+    "url": "https://api.example.com/data",
+    "method": "GET",
+    "headerType": "bearer"
+  }'
+
+# Custom header
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vault/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "secretId": "x-api-key",
+    "url": "https://api.example.com/data",
+    "method": "GET",
+    "headerType": "header",
+    "headerName": "X-API-Key"
+  }'
+
+# Query parameter
+curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vault/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "secretId": "token",
+    "url": "https://api.example.com/data",
+    "method": "GET",
+    "headerType": "query",
+    "paramName": "api_key"
+  }'
 ```
 
 ---

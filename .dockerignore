@@ -1,0 +1,63 @@
+# .dockerignore for js-doc-store-server
+
+# Dependencies (installed in Dockerfile)
+node_modules
+npm-debug.log*
+
+# Data directory (mounted as volume)
+data/
+
+# Environment files (secrets)
+.env
+.env.local
+.env.*.local
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+test*.js
+*.test.js
+*.spec.js
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Build artifacts
+dist/
+build/
+
+# Cloudflare Workers (not used in local Docker)
+wrangler.toml
+cloudflare-worker.js
+workers-ai/
+
+# Scripts
+deploy*.sh

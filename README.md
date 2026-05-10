@@ -1,6 +1,6 @@
 # js-doc-store-server
 
-API REST para js-doc-store con autenticación JWT, RBAC y multi-agent collaboration.
+API REST para js-doc-store con autenticación JWT, RBAC, multi-agent collaboration y embeddings con Google Gemma.
 
 ## 🚀 Quick Start
 
@@ -15,6 +15,7 @@ Server runs on `http://localhost:3000`
 
 - **[📖 API Reference Completa](./API.md)** - Documentación detallada de todos los endpoints con ejemplos
 - **[🔍 Vector Search](./API.md#-vector-search-endpoints-js-vector-store-integration)** - Búsqueda semántica con embeddings
+- **[🧠 Embedding Integration](./EMBEDDING_INTEGRATION.md)** - Guía de integración con Google Gemma 300M
 - [API Endpoints](#api-endpoints)
 - [Autenticación](#autenticación)
 - [Configuración](#configuración)
@@ -25,7 +26,40 @@ Server runs on `http://localhost:3000`
 - **Búsqueda matryoshka**: Multi-stage dimensional search `[128, 384, 768]`
 - **Hybrid search**: Combinación de similitud vectorial + BM25
 - **Cross-collection**: Score normalization entre colecciones
+- **Embeddings automáticos**: Integración con Google Gemma 300M via Cloudflare AI
 - **Zero dependencies**: js-vector-store incluido en el worker
+
+### Embeddings con Google Gemma 300M
+
+El servidor integra automáticamente embeddings usando Cloudflare AI:
+
+```bash
+# Generar embedding
+POST /admin/embed
+{
+  "text": "Machine learning is a subset of AI",
+  "dimensions": 768  // 64, 256, 768, o 2048
+}
+
+# Indexar con embedding automático
+POST /admin/vector/index-with-text
+{
+  "collection": "documents",
+  "id": "doc-123",
+  "text": "Contenido del documento...",
+  "metadata": { "category": "tech" }
+}
+
+# Buscar con lenguaje natural
+POST /admin/vector/search-by-text
+{
+  "collection": "documents",
+  "query": "inteligencia artificial",
+  "limit": 10
+}
+```
+
+Ver [EMBEDDING_INTEGRATION.md](./EMBEDDING_INTEGRATION.md) para más detalles.
 
 ---
 
@@ -48,6 +82,7 @@ Ver [DEPLOY.md](./DEPLOY.md) para instrucciones detalladas de deploy.
 - `GET /public/query/:table` - Query público
 
 ### Auth
+- `POST /auth/bootstrap` - Crear primer admin (solo cuando no hay usuarios)
 - `POST /auth/register` - Registrar usuario
 - `POST /auth/login` - Login (retorna JWT)
 
@@ -60,6 +95,7 @@ Ver [DEPLOY.md](./DEPLOY.md) para instrucciones detalladas de deploy.
 - `POST /admin/aggregate` - Pipeline de agregación
 - `POST /admin/create-view` - Crear vista
 - `POST /admin/deploy-template` - Deploy template
+- `POST /admin/assign-role` - Asignar rol a usuario
 
 ### Vector Search (requiere JWT)
 - `POST /admin/vector/index` - Indexar vector con embedding
@@ -69,8 +105,15 @@ Ver [DEPLOY.md](./DEPLOY.md) para instrucciones detalladas de deploy.
 - `POST /admin/vector/search-cross` - Cross-collection search
 - `GET /admin/vector/collections` - Listar colecciones
 - `GET /admin/vector/stats` - Estadísticas del vector store
+- `GET /admin/vector/:collection/:id` - Obtener vector por ID
 - `DELETE /admin/vector/:collection/:id` - Eliminar vector
 - `POST /admin/vector/drop` - Eliminar colección
+
+### Embeddings (requiere JWT)
+- `POST /admin/embed` - Generar embedding para texto
+- `POST /admin/vector/index-with-text` - Indexar documento con embedding automático
+- `POST /admin/vector/search-by-text` - Buscar con lenguaje natural
+- `POST /admin/vector/batch-index-with-text` - Indexar batch con embeddings
 
 ### Vault
 - `POST /admin/vault/add` - Guardar secreto
@@ -78,6 +121,22 @@ Ver [DEPLOY.md](./DEPLOY.md) para instrucciones detalladas de deploy.
 - `POST /admin/vault/execute` - Ejecutar con secreto
 
 ## Autenticación
+
+### Bootstrap - Primer Admin
+
+Cuando el servidor está vacío (sin usuarios), usa `/auth/bootstrap` para crear el primer administrador:
+
+```bash
+curl -X POST http://localhost:3000/auth/bootstrap \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@example.com",
+    "password": "Admin123!",
+    "name": "Administrator"
+  }'
+```
+
+### Login Normal
 
 ```bash
 # 1. Registrar
@@ -99,16 +158,64 @@ curl -X POST http://localhost:3000/admin/insert \
 
 ## Configuración
 
-Variables de entorno:
-- `PORT` - Puerto (default: 3000)
-- `DATA_DIR` - Directorio de datos
-- `JWT_SECRET` - Secreto para JWT
-- `DB_ENCRYPTION_KEY` - Clave de encriptación
+Copia `.env.example` a `.env` y configura:
+
+```bash
+# Server
+PORT=3000
+NODE_ENV=development
+
+# Seguridad
+JWT_SECRET=your-jwt-secret-here
+VAULT_SECRET=your-vault-secret-here
+DB_ENCRYPTION_KEY=your-encryption-key
+
+# Cloudflare (opcional - para desarrollo local)
+EMBEDDING_WORKER_URL=https://gemma-embedding-worker.your-subdomain.workers.dev
+EMBEDDING_API_KEY=your-api-key
+
+# Admin por defecto (para tests)
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=Admin123!
+API_URL=http://localhost:3000
+```
+
+## Testing
+
+Ejecuta el test suite completo:
+
+```bash
+# Test completo
+node run_full_test_suite.js
+
+# Tests individuales
+node test_collaboration.js
+node test_public_endpoints.js
+node test_embedding_integration.js
+```
+
+Variables de entorno para tests:
+- `API_URL` - URL del servidor (default: https://js-doc-store-server.rckflr.workers.dev)
+- `ADMIN_EMAIL` - Email del admin
+- `ADMIN_PASSWORD` - Password del admin
+
+## Rate Limiting
+
+El servidor implementa rate limiting en Cloudflare Workers:
+
+- **Free Tier**: 100,000 requests/día, 1,000 writes/día
+- **Headers incluidos**:
+  - `X-RateLimit-Limit`: Límite de requests
+  - `X-RateLimit-Remaining`: Requests restantes
+  - `X-RateLimit-Reset`: Timestamp de reset
+
+Configura rate limits personalizados en el dashboard de Cloudflare.
 
 ## Dependencias
 
 - [js-doc-store](https://github.com/MauricioPerera/js-doc-store) - Core database
-- express - Web server
+- [js-vector-store](https://github.com/MauricioPerera/js-vector-store) - Vector search
+- express - Web server (local)
 - cors - CORS headers
 - axios - HTTP client
 

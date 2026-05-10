@@ -205,6 +205,55 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    // Rate limiting configuration
+    const RATE_LIMIT_CONFIG = {
+      // Public endpoints: 60 requests per minute per IP
+      public: { requests: 60, window: 60 },
+      // Authenticated endpoints: 300 requests per minute per user
+      authenticated: { requests: 300, window: 60 },
+      // Embedding endpoints (higher cost): 30 requests per minute
+      embedding: { requests: 30, window: 60 }
+    };
+
+    /**
+     * Simple rate limiter using KV store
+     * Tracks requests per IP/user within time windows
+     */
+    async function checkRateLimit(identifier, config) {
+      const key = `ratelimit:${identifier}:${Math.floor(Date.now() / (config.window * 1000))}`;
+      const current = await env.DOC_STORE_KV.get(key, 'json') || { count: 0, reset: Date.now() + config.window * 1000 };
+
+      if (current.count >= config.requests) {
+        return {
+          allowed: false,
+          retryAfter: Math.ceil((current.reset - Date.now()) / 1000)
+        };
+      }
+
+      // Increment counter
+      current.count++;
+      await env.DOC_STORE_KV.put(key, JSON.stringify(current), { expirationTtl: config.window + 1 });
+
+      return {
+        allowed: true,
+        limit: config.requests,
+        remaining: config.requests - current.count,
+        reset: new Date(current.reset).toISOString()
+      };
+    }
+
+    /**
+     * Get rate limit headers for response
+     */
+    function getRateLimitHeaders(rateLimitResult) {
+      if (!rateLimitResult) return {};
+      return {
+        'X-RateLimit-Limit': rateLimitResult.limit?.toString(),
+        'X-RateLimit-Remaining': rateLimitResult.remaining?.toString(),
+        'X-RateLimit-Reset': rateLimitResult.reset
+      };
+    }
+
     // Helper to verify JWT and check roles
     async function verifyAuth(request, requiredRole = null) {
       const authHeader = request.headers.get('Authorization');
@@ -240,17 +289,50 @@ export default {
 
     // --- PUBLIC ENDPOINTS (no authentication required) ---
 
+    // Apply rate limiting to public endpoints
+    const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+
     // GET /public/tables - List publicly accessible tables
     if (path === '/public/tables' && request.method === 'GET') {
+      // Rate limit check
+      const rateLimit = await checkRateLimit(`public:${clientIP}`, RATE_LIMIT_CONFIG.public);
+      const rateLimitHeaders = getRateLimitHeaders(rateLimit);
+
+      if (!rateLimit.allowed) {
+        return new Response(JSON.stringify({
+          success: false,
+          message: 'Rate limit exceeded. Please try again later.'
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, ...rateLimitHeaders, 'Retry-After': rateLimit.retryAfter.toString() }
+        });
+      }
+
       // Get list of tables from PUBLIC_TABLES env var
       // If not set, returns empty list (no tables are public by default)
       const PUBLIC_TABLES = (env.PUBLIC_TABLES || '').split(',').filter(Boolean);
 
-      return new Response(JSON.stringify({ success: true, tables: PUBLIC_TABLES }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true, tables: PUBLIC_TABLES }), {
+        headers: { ...corsHeaders, ...rateLimitHeaders }
+      });
     }
 
     // GET /public/query/:table - Query a publicly accessible table
     if (path.startsWith('/public/query/') && request.method === 'GET') {
+      // Rate limit check
+      const rateLimit = await checkRateLimit(`public:${clientIP}`, RATE_LIMIT_CONFIG.public);
+      const rateLimitHeaders = getRateLimitHeaders(rateLimit);
+
+      if (!rateLimit.allowed) {
+        return new Response(JSON.stringify({
+          success: false,
+          message: 'Rate limit exceeded. Please try again later.'
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, ...rateLimitHeaders, 'Retry-After': rateLimit.retryAfter.toString() }
+        });
+      }
+
       const PUBLIC_TABLES = (env.PUBLIC_TABLES || '').split(',').filter(Boolean);
       const tableName = path.split('/').pop();
 
@@ -261,7 +343,9 @@ export default {
 
       const table = new Table(db, tableName, { columns: [] });
       const results = table.find({}).toArray();
-      return new Response(JSON.stringify({ success: true, data: results }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true, data: results }), {
+        headers: { ...corsHeaders, ...rateLimitHeaders }
+      });
     }
 
     // --- AUTH ENDPOINTS ---
@@ -997,6 +1081,21 @@ export default {
         return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
       }
 
+      // Rate limit check for embedding endpoints (stricter due to AI cost)
+      const userId = authCheck.user?.sub || authCheck.user?._id || 'unknown';
+      const rateLimit = await checkRateLimit(`embed:${userId}`, RATE_LIMIT_CONFIG.embedding);
+      const rateLimitHeaders = getRateLimitHeaders(rateLimit);
+
+      if (!rateLimit.allowed) {
+        return new Response(JSON.stringify({
+          success: false,
+          message: 'Embedding rate limit exceeded. Please try again later.'
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, ...rateLimitHeaders, 'Retry-After': rateLimit.retryAfter.toString() }
+        });
+      }
+
       const body = await json();
       try {
         const { text, dimensions } = body;
@@ -1012,7 +1111,7 @@ export default {
           model: '@cf/google/embeddinggemma-300m',
           dimensions: embedding.length,
           embedding
-        }), { headers: corsHeaders });
+        }), { headers: { ...corsHeaders, ...rateLimitHeaders } });
 
       } catch (e) {
         return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500, headers: corsHeaders });
@@ -1024,6 +1123,21 @@ export default {
       const authCheck = await verifyAuth(request, 'admin');
       if (authCheck.error) {
         return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
+      }
+
+      // Rate limit check
+      const userId = authCheck.user?.sub || authCheck.user?._id || 'unknown';
+      const rateLimit = await checkRateLimit(`embed:${userId}`, RATE_LIMIT_CONFIG.embedding);
+      const rateLimitHeaders = getRateLimitHeaders(rateLimit);
+
+      if (!rateLimit.allowed) {
+        return new Response(JSON.stringify({
+          success: false,
+          message: 'Embedding rate limit exceeded. Please try again later.'
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, ...rateLimitHeaders, 'Retry-After': rateLimit.retryAfter.toString() }
+        });
       }
 
       const body = await json();
@@ -1071,7 +1185,7 @@ export default {
           id,
           textLength: textToEmbed.length,
           embeddingDimensions: embedding.length
-        }), { headers: corsHeaders });
+        }), { headers: { ...corsHeaders, ...rateLimitHeaders } });
 
       } catch (e) {
         return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500, headers: corsHeaders });
@@ -1083,6 +1197,21 @@ export default {
       const authCheck = await verifyAuth(request, 'admin');
       if (authCheck.error) {
         return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
+      }
+
+      // Rate limit check
+      const userId = authCheck.user?.sub || authCheck.user?._id || 'unknown';
+      const rateLimit = await checkRateLimit(`embed:${userId}`, RATE_LIMIT_CONFIG.embedding);
+      const rateLimitHeaders = getRateLimitHeaders(rateLimit);
+
+      if (!rateLimit.allowed) {
+        return new Response(JSON.stringify({
+          success: false,
+          message: 'Embedding rate limit exceeded. Please try again later.'
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, ...rateLimitHeaders, 'Retry-After': rateLimit.retryAfter.toString() }
+        });
       }
 
       const body = await json();
@@ -1114,7 +1243,7 @@ export default {
           collection,
           count: results.length,
           data: results
-        }), { headers: corsHeaders });
+        }), { headers: { ...corsHeaders, ...rateLimitHeaders } });
 
       } catch (e) {
         return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500, headers: corsHeaders });
@@ -1128,7 +1257,30 @@ export default {
         return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
       }
 
+      // Rate limit check (stricter for batch - uses 1 limit per document or minimum)
+      const userId = authCheck.user?.sub || authCheck.user?._id || 'unknown';
       const body = await json();
+      const docCount = body.documents?.length || 1;
+
+      // Batch requests consume rate limit based on document count
+      const batchRateLimit = {
+        requests: Math.max(1, Math.floor(RATE_LIMIT_CONFIG.embedding.requests / 5)),
+        window: RATE_LIMIT_CONFIG.embedding.window
+      };
+
+      const rateLimit = await checkRateLimit(`embed-batch:${userId}`, batchRateLimit);
+      const rateLimitHeaders = getRateLimitHeaders(rateLimit);
+
+      if (!rateLimit.allowed) {
+        return new Response(JSON.stringify({
+          success: false,
+          message: 'Batch embedding rate limit exceeded. Please try again later.'
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, ...rateLimitHeaders, 'Retry-After': rateLimit.retryAfter.toString() }
+        });
+      }
+
       try {
         const {
           collection = 'default',
@@ -1176,7 +1328,7 @@ export default {
           failed: failed.length,
           indexedIds: indexed.map(i => i.id),
           failedDetails: failed
-        }), { headers: corsHeaders });
+        }), { headers: { ...corsHeaders, ...rateLimitHeaders } });
 
       } catch (e) {
         return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500, headers: corsHeaders });
