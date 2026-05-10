@@ -95,10 +95,18 @@ export default {
       }
     };
 
-    // --- PUBLIC ENDPOINTS ---
+    // --- PUBLIC ENDPOINTS (require auth if JWT_SECRET is configured) ---
 
     // GET /public/tables
     if (path === '/public/tables' && request.method === 'GET') {
+      // Require auth if JWT_SECRET is configured
+      if (env.JWT_SECRET) {
+        const authCheck = await verifyAuth(request);
+        if (authCheck.error) {
+          return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
+        }
+      }
+
       const keys = await docAdapter.listKeys();
       const tables = [...new Set(keys.filter(k => k.endsWith('.docs.json')).map(k => k.replace('.docs.json', '')))];
       return new Response(JSON.stringify({ success: true, tables }), { headers: corsHeaders });
@@ -106,6 +114,14 @@ export default {
 
     // GET /public/query/:table
     if (path.startsWith('/public/query/') && request.method === 'GET') {
+      // Require auth if JWT_SECRET is configured
+      if (env.JWT_SECRET) {
+        const authCheck = await verifyAuth(request);
+        if (authCheck.error) {
+          return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
+        }
+      }
+
       const tableName = path.split('/').pop();
       const table = new Table(db, tableName, { columns: [] });
       const results = table.find({}).toArray();
