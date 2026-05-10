@@ -245,3 +245,4 @@ Configura rate limits personalizados en el dashboard de Cloudflare.
 ## Licencia
 
 MIT
+
