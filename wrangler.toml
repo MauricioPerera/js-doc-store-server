@@ -1,0 +1,18 @@
+# Cloudflare Workers Configuration for js-doc-store-server
+
+name = "js-doc-store-server"
+main = "cloudflare-worker.js"
+compatibility_date = "2024-01-01"
+
+# KV Namespace binding
+[[kv_namespaces]]
+binding = "DOC_STORE_KV"
+id = "your-kv-namespace-id-here"
+
+# Environment variables
+[vars]
+# JWT_SECRET should be set via wrangler secret
+# JWT_SECRET = "your-secret-here"
+
+# Secrets (use wrangler secret put JWT_SECRET)
+# wrangler secret put JWT_SECRET
