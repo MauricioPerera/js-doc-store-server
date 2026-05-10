@@ -15,8 +15,7 @@ import {
   HybridSearch
 } from './js-vector-store.js';
 
-// JWT Secret from environment
-const JWT_SECRET = 'pi-sovereign-jwt-secret-2026';
+// JWT Secret from environment (will be set from env.JWT_SECRET in the handler)
 
 // Vector store configuration
 const VECTOR_CONFIG = {
@@ -58,7 +57,7 @@ export default {
     // Initialize BM25 for hybrid search
     const bm25Store = new BM25Index();
 
-    const auth = new Auth(db, { secret: JWT_SECRET });
+    const auth = new Auth(db, { secret: env.JWT_SECRET || 'default-secret-change-in-production' });
     await auth.init();
 
     // CORS headers
@@ -86,11 +85,15 @@ export default {
       return { user: payload };
     }
 
-    // Parse JSON body
+    // Parse JSON body (only once per request)
+    let parsedBody = null;
     const json = async () => {
+      if (parsedBody) return parsedBody;
       try {
-        return await request.json();
-      } catch {
+        parsedBody = await request.json();
+        return parsedBody;
+      } catch (e) {
+        console.error('JSON parse error:', e.message);
         return {};
       }
     };
@@ -160,6 +163,8 @@ export default {
       const body = await json();
       try {
         const result = await auth.login(body.email, body.password);
+        await db.flush();
+        await docAdapter.persist();
         return new Response(JSON.stringify({ success: true, token: result.token, user: result.user }), { headers: corsHeaders });
       } catch (e) {
         return new Response(JSON.stringify({ success: false, message: e.message }), { status: 401, headers: corsHeaders });
