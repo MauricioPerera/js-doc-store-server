@@ -82,13 +82,23 @@ jobs:
             --external:node:* --external:cloudflare:*
           ls -la worker.bundle.js
 
+      - name: Backup original wrangler.toml
+        run: cp wrangler.toml wrangler.toml.bak
+
+      - name: Update wrangler.toml for bundled worker
+        run: |
+          sed -i 's/main = "cloudflare-worker.js"/main = "worker.bundle.js"/' wrangler.toml
+
       - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: '3'
-          main: worker.bundle.js
+
+      - name: Restore original wrangler.toml
+        if: always()
+        run: mv wrangler.toml.bak wrangler.toml
 
       - name: Notify on success
         if: success()
