@@ -17,6 +17,14 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const VAULT_SECRET = process.env.VAULT_SECRET;
 const DB_ENCRYPTION_KEY = process.env.DB_ENCRYPTION_KEY;
 
+// Embedding worker configuration
+const EMBEDDING_WORKER_URL = process.env.EMBEDDING_WORKER_URL;
+const EMBEDDING_API_KEY = process.env.EMBEDDING_API_KEY;
+const EMBEDDING_CONFIG = {
+    defaultDimensions: 768,
+    autoEmbedFields: ['content', 'text', 'description', 'body']
+};
+
 // Validate critical environment variables
 if (!JWT_SECRET) {
   console.error('ERROR: JWT_SECRET environment variable is required');
@@ -68,6 +76,55 @@ async function startServer() {
         const table = new Table(db, name, { columns: [] });
         tableCache.set(name, table);
         return table;
+    }
+
+    // --- EMBEDDING HELPERS ---
+
+    /**
+     * Generate embedding via Gemma embedding worker
+     */
+    async function generateEmbedding(text, dimensions = null) {
+        if (!EMBEDDING_WORKER_URL || !EMBEDDING_API_KEY) {
+            throw new Error('Embedding worker not configured. Set EMBEDDING_WORKER_URL and EMBEDDING_API_KEY');
+        }
+
+        const targetDimensions = dimensions || EMBEDDING_CONFIG.defaultDimensions;
+        const endpoint = targetDimensions !== 2048 ? '/embed/matryoshka' : '/embed';
+
+        const response = await axios({
+            method: 'POST',
+            url: `${EMBEDDING_WORKER_URL}${endpoint}`,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${EMBEDDING_API_KEY}`
+            },
+            data: {
+                text,
+                dimensions: targetDimensions
+            }
+        });
+
+        if (!response.data.success || !response.data.embeddings?.[0]?.embedding) {
+            throw new Error('Invalid embedding response');
+        }
+
+        return response.data.embeddings[0].embedding;
+    }
+
+    /**
+     * Extract text from document for embedding
+     */
+    function extractTextForEmbedding(doc, fields = null) {
+        const targetFields = fields || EMBEDDING_CONFIG.autoEmbedFields;
+        const texts = [];
+
+        for (const field of targetFields) {
+            if (doc[field] && typeof doc[field] === 'string') {
+                texts.push(doc[field]);
+            }
+        }
+
+        return texts.join(' ').trim();
     }
 
     // --- MIDDLEWARES ---
@@ -240,6 +297,99 @@ async function startServer() {
             const response = await axios({ method, url, data: reqBody, headers });
             res.json({ success: true, data: response.data, status: response.status });
         } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
+
+    // --- EMBEDDING INTEGRATION ENDPOINTS ---
+
+    // POST /admin/embed - Generate embedding for text
+    app.post('/admin/embed', authenticateJWT, authorize('admin'), async (req, res) => {
+        try {
+            const { text, dimensions } = req.body;
+
+            if (!text) {
+                return res.status(400).json({ success: false, message: 'text is required' });
+            }
+
+            const embedding = await generateEmbedding(text, dimensions);
+
+            res.json({
+                success: true,
+                model: '@cf/google/embeddinggemma-300m',
+                dimensions: embedding.length,
+                embedding
+            });
+        } catch (e) {
+            res.status(500).json({ success: false, message: e.message });
+        }
+    });
+
+    // POST /admin/vector/index-with-text - Index document with auto-generated embedding
+    app.post('/admin/vector/index-with-text', authenticateJWT, authorize('admin'), async (req, res) => {
+        try {
+            const { collection = 'default', id, text, doc, metadata = {}, dimensions } = req.body;
+
+            if (!id) {
+                return res.status(400).json({ success: false, message: 'id is required' });
+            }
+
+            // Get text to embed
+            let textToEmbed = text;
+            if (!textToEmbed && doc) {
+                textToEmbed = extractTextForEmbedding(doc);
+            }
+
+            if (!textToEmbed) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Provide "text" or "doc" with embeddable fields'
+                });
+            }
+
+            // Generate embedding
+            const embedding = await generateEmbedding(textToEmbed, dimensions);
+
+            // Index in vector store (using js-vector-store)
+            // Note: For Express server, this requires js-vector-store integration
+            // For now, return the embedding for manual storage
+            res.json({
+                success: true,
+                message: `Document ready for indexing in collection ${collection}`,
+                id,
+                textLength: textToEmbed.length,
+                embeddingDimensions: embedding.length,
+                embedding,
+                metadata: { ...metadata, text: textToEmbed.substring(0, 500) }
+            });
+
+        } catch (e) {
+            res.status(500).json({ success: false, message: e.message });
+        }
+    });
+
+    // POST /admin/vector/search-by-text - Search vectors using text query
+    app.post('/admin/vector/search-by-text', authenticateJWT, authorize('admin'), async (req, res) => {
+        try {
+            const { collection = 'default', query, limit = 10, metric = 'cosine', dimensions } = req.body;
+
+            if (!query) {
+                return res.status(400).json({ success: false, message: 'query text is required' });
+            }
+
+            // Generate embedding for query
+            const queryEmbedding = await generateEmbedding(query, dimensions);
+
+            res.json({
+                success: true,
+                query,
+                collection,
+                message: 'Query embedding generated. Use this with your vector store.',
+                embeddingDimensions: queryEmbedding.length,
+                queryEmbedding
+            });
+
+        } catch (e) {
+            res.status(500).json({ success: false, message: e.message });
+        }
     });
 
     // --- CORE DATA OPERATIONS ---

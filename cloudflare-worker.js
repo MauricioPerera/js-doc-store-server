@@ -25,6 +25,17 @@ const VECTOR_CONFIG = {
   maxCollections: 50
 };
 
+// Embedding worker configuration
+const EMBEDDING_CONFIG = {
+  // URL of the Gemma embedding worker
+  workerUrl: null, // Will be set from env.EMBEDDING_WORKER_URL
+  apiKey: null,    // Will be set from env.EMBEDDING_API_KEY
+  // Default dimensions for embeddings
+  defaultDimensions: 768,
+  // Fields to auto-embed (can be overridden per request)
+  autoEmbedFields: ['content', 'text', 'description', 'body']
+};
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -69,6 +80,94 @@ export default {
       if (state) {
         await env.DOC_STORE_KV.put(`bm25/${collection}.json`, JSON.stringify(state));
       }
+    }
+
+    // Initialize embedding config from environment
+    EMBEDDING_CONFIG.workerUrl = env.EMBEDDING_WORKER_URL || null;
+    EMBEDDING_CONFIG.apiKey = env.EMBEDDING_API_KEY || null;
+
+    /**
+     * Generate embedding via Cloudflare AI (direct binding)
+     * @param {string} text - Text to embed
+     * @param {number} dimensions - Desired dimensions (optional)
+     * @returns {Promise<number[]>} - Embedding vector
+     */
+    async function generateEmbedding(text, dimensions = null) {
+      // Use Cloudflare AI binding directly if available
+      if (env.AI) {
+        const targetDimensions = dimensions || EMBEDDING_CONFIG.defaultDimensions;
+        const result = await env.AI.run('@cf/google/embeddinggemma-300m', { text });
+
+        if (!result.data?.[0]) {
+          throw new Error('Invalid embedding response from AI');
+        }
+
+        const fullEmbedding = result.data[0];
+
+        // Return truncated embedding if Matryoshka dimensions requested
+        if (targetDimensions && targetDimensions < fullEmbedding.length) {
+          return fullEmbedding.slice(0, targetDimensions);
+        }
+
+        return fullEmbedding;
+      }
+
+      // Fallback to external embedding worker
+      if (!EMBEDDING_CONFIG.workerUrl) {
+        throw new Error('AI binding not available and EMBEDDING_WORKER_URL not configured');
+      }
+
+      const targetDimensions = dimensions || EMBEDDING_CONFIG.defaultDimensions;
+      const endpoint = targetDimensions !== 2048 ? '/embed/matryoshka' : '/embed';
+
+      const response = await fetch(`${EMBEDDING_CONFIG.workerUrl}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${EMBEDDING_CONFIG.apiKey}`
+        },
+        body: JSON.stringify({
+          text,
+          dimensions: targetDimensions
+        })
+      });
+
+      const responseText = await response.text();
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Embedding worker returned invalid JSON: ${responseText.substring(0, 100)}`);
+      }
+
+      if (!result.success) {
+        throw new Error(`Embedding worker error: ${result.message || response.status}`);
+      }
+
+      if (!result.embeddings?.[0]?.embedding) {
+        throw new Error('Invalid embedding response');
+      }
+
+      return result.embeddings[0].embedding;
+    }
+
+    /**
+     * Extract text from document for embedding
+     * @param {Object} doc - Document data
+     * @param {string[]} fields - Fields to extract
+     * @returns {string} - Combined text
+     */
+    function extractTextForEmbedding(doc, fields = null) {
+      const targetFields = fields || EMBEDDING_CONFIG.autoEmbedFields;
+      const texts = [];
+
+      for (const field of targetFields) {
+        if (doc[field] && typeof doc[field] === 'string') {
+          texts.push(doc[field]);
+        }
+      }
+
+      return texts.join(' ').trim();
     }
 
     const db = new DocStore(docAdapter);
@@ -884,6 +983,201 @@ export default {
           status: response.status,
           data: parsedData
         }), { headers: corsHeaders });
+      } catch (e) {
+        return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500, headers: corsHeaders });
+      }
+    }
+
+    // --- EMBEDDING INTEGRATION ENDPOINTS ---
+
+    // POST /admin/embed - Generate embedding for text
+    if (path === '/admin/embed' && request.method === 'POST') {
+      const authCheck = await verifyAuth(request, 'admin');
+      if (authCheck.error) {
+        return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
+      }
+
+      const body = await json();
+      try {
+        const { text, dimensions } = body;
+
+        if (!text) {
+          return new Response(JSON.stringify({ success: false, message: 'text is required' }), { status: 400, headers: corsHeaders });
+        }
+
+        const embedding = await generateEmbedding(text, dimensions);
+
+        return new Response(JSON.stringify({
+          success: true,
+          model: '@cf/google/embeddinggemma-300m',
+          dimensions: embedding.length,
+          embedding
+        }), { headers: corsHeaders });
+
+      } catch (e) {
+        return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500, headers: corsHeaders });
+      }
+    }
+
+    // POST /admin/vector/index-with-text - Index document with auto-generated embedding
+    if (path === '/admin/vector/index-with-text' && request.method === 'POST') {
+      const authCheck = await verifyAuth(request, 'admin');
+      if (authCheck.error) {
+        return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
+      }
+
+      const body = await json();
+      try {
+        const {
+          collection = 'default',
+          id,
+          text,
+          doc, // Document data for auto-extracting text
+          metadata = {},
+          dimensions
+        } = body;
+
+        if (!id) {
+          return new Response(JSON.stringify({ success: false, message: 'id is required' }), { status: 400, headers: corsHeaders });
+        }
+
+        // Get text to embed
+        let textToEmbed = text;
+        if (!textToEmbed && doc) {
+          textToEmbed = extractTextForEmbedding(doc);
+        }
+
+        if (!textToEmbed) {
+          return new Response(JSON.stringify({
+            success: false,
+            message: 'Provide "text" or "doc" with embeddable fields'
+          }), { status: 400, headers: corsHeaders });
+        }
+
+        // Generate embedding
+        const embedding = await generateEmbedding(textToEmbed, dimensions);
+
+        // Preload collection
+        await preloadVectorCollection(collection);
+
+        // Index in vector store
+        vectorStore.set(collection, id, embedding, { ...metadata, text: textToEmbed.substring(0, 500) });
+        vectorStore.flush();
+        await vectorAdapter.persist();
+
+        return new Response(JSON.stringify({
+          success: true,
+          message: `Document indexed in collection ${collection}`,
+          id,
+          textLength: textToEmbed.length,
+          embeddingDimensions: embedding.length
+        }), { headers: corsHeaders });
+
+      } catch (e) {
+        return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500, headers: corsHeaders });
+      }
+    }
+
+    // POST /admin/vector/search-by-text - Search vectors using text query
+    if (path === '/admin/vector/search-by-text' && request.method === 'POST') {
+      const authCheck = await verifyAuth(request, 'admin');
+      if (authCheck.error) {
+        return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
+      }
+
+      const body = await json();
+      try {
+        const {
+          collection = 'default',
+          query,
+          limit = 10,
+          metric = 'cosine',
+          dimensions
+        } = body;
+
+        if (!query) {
+          return new Response(JSON.stringify({ success: false, message: 'query text is required' }), { status: 400, headers: corsHeaders });
+        }
+
+        // Generate embedding for query
+        const queryEmbedding = await generateEmbedding(query, dimensions);
+
+        // Preload collection
+        await preloadVectorCollection(collection);
+
+        // Search
+        const results = vectorStore.search(collection, queryEmbedding, limit, 0, metric);
+
+        return new Response(JSON.stringify({
+          success: true,
+          query,
+          collection,
+          count: results.length,
+          data: results
+        }), { headers: corsHeaders });
+
+      } catch (e) {
+        return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500, headers: corsHeaders });
+      }
+    }
+
+    // POST /admin/vector/batch-index-with-text - Batch index documents with embeddings
+    if (path === '/admin/vector/batch-index-with-text' && request.method === 'POST') {
+      const authCheck = await verifyAuth(request, 'admin');
+      if (authCheck.error) {
+        return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
+      }
+
+      const body = await json();
+      try {
+        const {
+          collection = 'default',
+          documents,
+          textField = 'content',
+          dimensions
+        } = body;
+
+        if (!documents || !Array.isArray(documents)) {
+          return new Response(JSON.stringify({ success: false, message: 'documents array is required' }), { status: 400, headers: corsHeaders });
+        }
+
+        const indexed = [];
+        const failed = [];
+
+        // Preload collection
+        await preloadVectorCollection(collection);
+
+        for (const doc of documents) {
+          try {
+            const id = doc._id || doc.id || crypto.randomUUID();
+            const text = doc[textField] || extractTextForEmbedding(doc);
+
+            if (!text) {
+              failed.push({ id, reason: 'No text content found' });
+              continue;
+            }
+
+            const embedding = await generateEmbedding(text, dimensions);
+            vectorStore.set(collection, id, embedding, { ...doc, text: text.substring(0, 500) });
+
+            indexed.push({ id, textLength: text.length });
+          } catch (e) {
+            failed.push({ id: doc._id || doc.id, reason: e.message });
+          }
+        }
+
+        vectorStore.flush();
+        await vectorAdapter.persist();
+
+        return new Response(JSON.stringify({
+          success: true,
+          collection,
+          indexed: indexed.length,
+          failed: failed.length,
+          indexedIds: indexed.map(i => i.id),
+          failedDetails: failed
+        }), { headers: corsHeaders });
+
       } catch (e) {
         return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500, headers: corsHeaders });
       }
