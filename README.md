@@ -13,9 +13,24 @@ Server runs on `http://localhost:3000`
 
 ## 📚 Documentación
 
+- **[📖 API Reference Completa](./API.md)** - Documentación detallada de todos los endpoints con ejemplos
 - [API Endpoints](#api-endpoints)
 - [Autenticación](#autenticación)
 - [Configuración](#configuración)
+
+---
+
+## 🌐 Deploy en Cloudflare Workers
+
+El servidor está desplegado y disponible en:
+
+```
+https://js-doc-store-server.rckflr.workers.dev
+```
+
+Ver [DEPLOY.md](./DEPLOY.md) para instrucciones detalladas de deploy.
+
+---
 
 ## API Endpoints
 
