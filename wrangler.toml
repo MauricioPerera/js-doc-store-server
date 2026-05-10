@@ -22,6 +22,11 @@ binding = "AI"
 [vars]
 NODE_ENV = "production"
 
+# Static Assets (Admin UI)
+[assets]
+directory = "public"
+binding = "ASSETS"
+
 # Secrets (use: wrangler secret put <name>)
 # Do NOT add secrets here - use the CLI command instead
 # Required secrets:

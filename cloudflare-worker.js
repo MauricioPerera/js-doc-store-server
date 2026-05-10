@@ -1476,6 +1476,19 @@ export default {
       }), { headers: corsHeaders });
     }
 
+    // Static Assets (Admin UI) - Serve from ASSETS binding
+    if (env.ASSETS) {
+      try {
+        // Try to serve static assets from the public directory
+        const assetResponse = await env.ASSETS.fetch(request);
+        if (assetResponse.status !== 404) {
+          return assetResponse;
+        }
+      } catch (e) {
+        // Asset not found, continue to API 404
+      }
+    }
+
     // Default: 404
     await trackMetric('errors', 1);
     return new Response(JSON.stringify({ success: false, message: 'Not found' }), { status: 404, headers: corsHeaders });
