@@ -2,7 +2,7 @@
 # Replace the KV namespace id with your actual ID after running:
 # npm run cf:kv:create
 
-name = "js-doc-store-server"
+name = "doc-store-api-prod"
 main = "cloudflare-worker.js"
 compatibility_date = "2024-01-01"
 
