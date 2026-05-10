@@ -1160,6 +1160,19 @@ class BinaryQuantizedStore {
       id, vector: this._readVec(col, i), metadata: entry.meta[i],
     }));
   }
+
+  collections() { return Array.from(this._collections.keys()); }
+
+  stats() {
+    const stats = {};
+    for (const [col, entry] of this._collections) {
+      stats[col] = {
+        count: entry.ids.length,
+        bytes: entry.bin ? entry.bin.byteLength : 0
+      };
+    }
+    return stats;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1563,6 +1576,19 @@ class PolarQuantizedStore {
     return entry.ids.map((id, i) => ({
       id, vector: Array.from(this._readVec(col, i)), metadata: entry.meta[i],
     }));
+  }
+
+  collections() { return Array.from(this._collections.keys()); }
+
+  stats() {
+    const stats = {};
+    for (const [col, entry] of this._collections) {
+      stats[col] = {
+        count: entry.ids.length,
+        bytes: entry.packed ? entry.packed.byteLength : 0
+      };
+    }
+    return stats;
   }
 }
 

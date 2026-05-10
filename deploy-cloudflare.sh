@@ -47,7 +47,13 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${GREEN}✅ KV namespace created${NC}"
     echo -e "${YELLOW}⚠️  IMPORTANT: Update wrangler.toml with the KV ID shown above${NC}"
     echo "   Edit wrangler.toml and replace 'YOUR_KV_NAMESPACE_ID_HERE'"
-    exit 0
+    echo ""
+    read -p "Have you updated wrangler.toml with the KV ID? (y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}⚠️  Please update wrangler.toml and run this script again${NC}"
+        exit 0
+    fi
 else
     echo -e "${YELLOW}⚠️  Make sure wrangler.toml has your KV namespace ID${NC}"
 fi
@@ -78,8 +84,23 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "Your API is now live at:"
     echo "  https://js-doc-store-server.YOUR_SUBDOMAIN.workers.dev"
     echo ""
-    echo "Test with:"
-    echo "  curl https://js-doc-store-server.YOUR_SUBDOMAIN.workers.dev/public/tables"
+    echo "══════════════════════════════════════════════════"
+    echo "   FIRST-TIME SETUP:"
+    echo "══════════════════════════════════════════════════"
+    echo ""
+    echo "1. Create first admin user (bootstrap):"
+    echo "   curl -X POST https://js-doc-store-server.YOUR_SUBDOMAIN.workers.dev/auth/bootstrap \\"
+    echo "     -H 'Content-Type: application/json' \\"
+    echo "     -d '{"email": "admin@example.com", "password": "securepassword", "name": "Admin"}'"
+    echo ""
+    echo "2. Login to get token:"
+    echo "   curl -X POST https://js-doc-store-server.YOUR_SUBDOMAIN.workers.dev/auth/login \\"
+    echo "     -H 'Content-Type: application/json' \\"
+    echo "     -d '{"email": "admin@example.com", "password": "securepassword"}'"
+    echo ""
+    echo "3. Test with token:"
+    echo "   curl https://js-doc-store-server.YOUR_SUBDOMAIN.workers.dev/admin/vector/stats \\"
+    echo "     -H 'Authorization: Bearer YOUR_TOKEN_HERE'"
     echo ""
 else
     echo -e "${YELLOW}⚠️  Deploy cancelled${NC}"

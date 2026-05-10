@@ -12,10 +12,24 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;
-const DATA_DIR = "D:/repos/ollama/pi-shared-data";
-const JWT_SECRET = "pi-sovereign-jwt-secret-2026";
-const VAULT_SECRET = "pi-vault-master-key-2026";
-const DB_ENCRYPTION_KEY = "pi-db-full-encryption-key-2026"; // For EncryptedAdapter
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const JWT_SECRET = process.env.JWT_SECRET;
+const VAULT_SECRET = process.env.VAULT_SECRET;
+const DB_ENCRYPTION_KEY = process.env.DB_ENCRYPTION_KEY;
+
+// Validate critical environment variables
+if (!JWT_SECRET) {
+  console.error('ERROR: JWT_SECRET environment variable is required');
+  process.exit(1);
+}
+if (!VAULT_SECRET) {
+  console.error('ERROR: VAULT_SECRET environment variable is required');
+  process.exit(1);
+}
+if (!DB_ENCRYPTION_KEY) {
+  console.error('ERROR: DB_ENCRYPTION_KEY environment variable is required');
+  process.exit(1);
+}
 
 if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -80,25 +94,90 @@ async function startServer() {
         };
     }
 
-    // --- PUBLIC ENDPOINTS ---
-    app.get('/public/tables', (req, res) => {
+    // --- PUBLIC ENDPOINTS (require authentication) ---
+    // Whitelist of tables that can be queried publicly
+    const PUBLIC_TABLES = (process.env.PUBLIC_TABLES || '').split(',').filter(Boolean);
+
+    app.get('/public/tables', authenticateJWT, (req, res) => {
         const files = fs.readdirSync(DATA_DIR);
         const tables = [...new Set(files.filter(f => f.endsWith('.docs.json')).map(f => f.replace('.docs.json', '')))];
-        res.json({ success: true, tables });
+        // Only show public tables or all tables if user is admin
+        const isAdmin = req.user?.roles?.includes('admin');
+        const visibleTables = isAdmin ? tables : tables.filter(t => PUBLIC_TABLES.includes(t));
+        res.json({ success: true, tables: visibleTables });
     });
 
-    app.get('/public/query/:tableName', (req, res) => {
+    app.get('/public/query/:tableName', authenticateJWT, (req, res) => {
         const { tableName } = req.params;
+        const isAdmin = req.user?.roles?.includes('admin');
+
+        // Check if table is public or user is admin
+        if (!isAdmin && !PUBLIC_TABLES.includes(tableName)) {
+            return res.status(403).json({ success: false, message: 'Table not accessible' });
+        }
+
         const table = getTable(tableName);
         const results = table.find({}).toArray();
         res.json({ success: true, data: results });
     });
 
     // --- AUTHENTICATION ---
+
+    // Bootstrap endpoint - Create first admin when no users exist
+    app.post('/auth/bootstrap', async (req, res) => {
+        try {
+            // Check if users already exist
+            const usersTable = new Table(db, 'users', { columns: [] });
+            const existingUsers = usersTable.find({}).toArray();
+
+            if (existingUsers.length > 0) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Bootstrap can only be used when no users exist. Use /auth/register instead.'
+                });
+            }
+
+            const { email, password, name } = req.body;
+            if (!email || !password) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'email and password are required'
+                });
+            }
+
+            // Register the user
+            const user = await auth.register(email, password, { name });
+
+            // Assign admin role
+            await auth.assignRole(user._id, 'admin');
+
+            // Get updated user with roles
+            const updatedUser = usersTable.findById(user._id);
+
+            db.flush();
+
+            res.json({
+                success: true,
+                message: 'First admin user created successfully',
+                user: { _id: updatedUser._id, email: updatedUser.email, roles: updatedUser.roles }
+            });
+        } catch (e) {
+            res.status(400).json({ success: false, message: e.message });
+        }
+    });
+
     app.post('/auth/register', async (req, res) => {
         const { email, password, name } = req.body;
         try {
             const user = await auth.register(email, password, { name });
+
+            // Auto-assign admin role to the first user
+            const usersTable = new Table(db, 'users', { columns: [] });
+            const userCount = usersTable.find({}).toArray().length;
+            if (userCount === 1) {
+                await auth.assignRole(user._id, 'admin');
+            }
+
             res.json({ success: true, user });
         } catch (e) { res.status(400).json({ success: false, message: e.message }); }
     });
@@ -128,17 +207,42 @@ async function startServer() {
         res.json({ success: true, secrets: sanitized });
     });
 
-    app.post('/admin/vault/execute', authenticateJWT, async (req, res) => {
-        const { secretId, url, method = 'GET', body = {} } = req.body;
+    app.post('/admin/vault/execute', authenticateJWT, authorize('admin'), async (req, res) => {
+        const { secretId, url, method = 'GET', body: reqBody = {}, headerType = 'bearer' } = req.body;
         const vault = getTable('vault');
         const secretDoc = vault.findById(secretId);
         if (!secretDoc) return res.status(404).json({ success: false, message: "Secret not found" });
         try {
             const decryptedValue = await vaultCrypto.decrypt(secretDoc.value);
-            const response = await axios({
-                method, url, data: body,
-                headers: { 'Authorization': `Bearer ${decryptedValue}`, 'X-API-KEY': decryptedValue }
-            });
+
+            // Build headers based on headerType parameter
+            // headerType options: 'bearer', 'api-key', 'x-api-key', 'basic', 'custom'
+            let headers = {};
+            switch (headerType) {
+                case 'bearer':
+                    headers = { 'Authorization': `Bearer ${decryptedValue}` };
+                    break;
+                case 'api-key':
+                    headers = { 'X-Api-Key': decryptedValue };
+                    break;
+                case 'x-api-key':
+                    headers = { 'X-API-KEY': decryptedValue };
+                    break;
+                case 'basic':
+                    headers = { 'Authorization': `Basic ${Buffer.from(decryptedValue).toString('base64')}` };
+                    break;
+                case 'custom':
+                    // For custom, expect headerName and headerValueFormat
+                    // e.g., headerName: 'Api-Key', headerValueFormat: 'prefix-{value}'
+                    const customHeaderName = req.body.headerName || 'Authorization';
+                    const valueFormat = req.body.headerValueFormat || '{value}';
+                    headers[customHeaderName] = valueFormat.replace('{value}', decryptedValue);
+                    break;
+                default:
+                    headers = { 'Authorization': `Bearer ${decryptedValue}` };
+            }
+
+            const response = await axios({ method, url, data: reqBody, headers });
             res.json({ success: true, data: response.data, status: response.status });
         } catch (e) { res.status(500).json({ success: false, message: e.message }); }
     });
@@ -164,7 +268,7 @@ async function startServer() {
         }
     });
 
-    app.post('/admin/insert', authenticateJWT, (req, res) => {
+    app.post('/admin/insert', authenticateJWT, authorize('admin'), (req, res) => {
         const { tableName, data } = req.body;
         const table = getTable(tableName);
         const doc = table.insert(data);
@@ -172,7 +276,7 @@ async function startServer() {
         res.json({ success: true, id: doc._id });
     });
 
-    app.post('/admin/query', authenticateJWT, (req, res) => {
+    app.post('/admin/query', authenticateJWT, authorize('admin'), (req, res) => {
         const { tableName, filter, sort, limit } = req.body;
         const table = getTable(tableName);
         let query = table.find(filter || {});
@@ -189,14 +293,14 @@ async function startServer() {
         res.json({ success: true, message: `View '${viewName}' created for table ${tableName}.` });
     });
 
-    app.post('/admin/execute-view', authenticateJWT, (req, res) => {
+    app.post('/admin/execute-view', authenticateJWT, authorize('admin'), (req, res) => {
         const { tableName, viewName } = req.body;
         const table = getTable(tableName);
         const results = table.view(viewName).toArray();
         res.json({ success: true, data: results });
     });
 
-    app.post('/admin/update', authenticateJWT, (req, res) => {
+    app.post('/admin/update', authenticateJWT, authorize('admin'), (req, res) => {
         const { tableName, filter, update } = req.body;
         const table = getTable(tableName);
         table.updateMany(filter, update);
@@ -204,7 +308,7 @@ async function startServer() {
         res.json({ success: true });
     });
 
-    app.post('/admin/aggregate', authenticateJWT, (req, res) => {
+    app.post('/admin/aggregate', authenticateJWT, authorize('admin'), (req, res) => {
         const { tableName, pipeline } = req.body;
         const table = getTable(tableName);
         let agg = table.aggregate();
