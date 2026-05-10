@@ -116,16 +116,47 @@ The script automatically:
 **For large bases (100k+ records):**
 
 ```bash
-# Increase batch size for faster migration
+# Migrate table by table
 node airtable-migrator.js \
   --api-key keyXXX \
   --base-id appXXX \
   --target-url https://your-api.com \
-  --batch-size 500 \
+  --table-name "Customers" \
   --verbose
 ```
 
+**Control de Rate Limiting:**
+
+El script incluye rate limiting automático (4 req/segundo por defecto). Si tienes un plan pago de Airtable con límites más altos:
+
+```bash
+node airtable-migrator.js \
+  --api-key keyXXX \
+  --base-id appXXX \
+  --target-url https://your-api.com \
+  --rate-limit 10  # Ajustar según tu plan
+```
+
 ### Phase 4: Verification
+
+La validación automática ocurre después de la migración:
+
+```
+========== VALIDATION RESULTS ==========
+Tables validated: 3/3
+
+✅ All tables validated successfully!
+========================================
+```
+
+Si hay discrepancias:
+
+```
+⚠️  Some tables have count mismatches:
+  - customers: expected 150, got 148 (-2)
+```
+
+**Verificación manual:**
 
 ```bash
 # Query migrated data
@@ -412,8 +443,8 @@ echo "Verify at: $TARGET_URL/public/tables"
 - [ ] Generate and test API key
 - [ ] Run dry-run migration
 - [ ] Review schema mapping
-- [ ] Run full migration
-- [ ] Verify record counts match
+- [ ] Run full migration (with automatic validation)
+- [ ] Review validation results
 - [ ] Test CRUD operations
 - [ ] Rebuild linked record relations (if needed)
 - [ ] Migrate attachments (if needed)

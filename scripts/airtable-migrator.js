@@ -27,8 +27,45 @@ const CONFIG = {
   batchSize: 100,
   retryAttempts: 3,
   retryDelay: 1000,
-  concurrency: 5
+  concurrency: 5,
+  rateLimitPerSecond: 4, // Airtable allows 5 req/s, we use 4 for safety
+  rateLimitWindow: 1000 // 1 second window
 };
+
+// Rate Limiter for API calls
+class RateLimiter {
+  constructor(requestsPerSecond = CONFIG.rateLimitPerSecond, windowMs = CONFIG.rateLimitWindow) {
+    this.requestsPerWindow = requestsPerSecond;
+    this.windowMs = windowMs;
+    this.requests = [];
+  }
+
+  async acquire() {
+    const now = Date.now();
+    // Remove old requests outside the window
+    this.requests = this.requests.filter(time => now - time < this.windowMs);
+
+    if (this.requests.length >= this.requestsPerWindow) {
+      const oldestRequest = this.requests[0];
+      const waitTime = this.windowMs - (now - oldestRequest);
+      if (waitTime > 0) {
+        await this.sleep(waitTime);
+        return this.acquire(); // Recursively try again
+      }
+    }
+
+    this.requests.push(now);
+  }
+
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  getQueueSize() {
+    const now = Date.now();
+    return this.requests.filter(time => now - time < this.windowMs).length;
+  }
+}
 
 // Airtable field types → js-doc-store types
 const FIELD_TYPE_MAP = {
@@ -84,6 +121,9 @@ class Logger {
       console.error(`${prefix} ${message}`);
       if (data) console.error(data);
       this.stats.errors.push({ message, data, time: timestamp });
+    } else if (level === 'warn') {
+      console.log(`\x1b[33m${prefix} ${message}\x1b[0m`);
+      if (data && this.verbose) console.log(data);
     } else if (level === 'success') {
       console.log(`\x1b[32m${prefix} ${message}\x1b[0m`);
     } else if (this.verbose || level === 'info') {
@@ -154,21 +194,38 @@ async function withRetry(fn, attempts = CONFIG.retryAttempts) {
 
 // Airtable API Client
 class AirtableClient {
-  constructor(apiKey, baseId, logger) {
+  constructor(apiKey, baseId, logger, rateLimitPerSecond = CONFIG.rateLimitPerSecond) {
     this.apiKey = apiKey;
     this.baseId = baseId;
     this.logger = logger;
     this.baseUrl = `https://api.airtable.com/v0/${baseId}`;
+    this.rateLimiter = new RateLimiter(rateLimitPerSecond);
+    this.totalRequests = 0;
   }
 
   async request(endpoint, options = {}) {
+    // Wait for rate limit slot
+    await this.rateLimiter.acquire();
+    this.totalRequests++;
+
     const url = `${this.baseUrl}${endpoint}`;
     const headers = {
       'Authorization': `Bearer ${this.apiKey}`,
       'Content-Type': 'application/json'
     };
 
-    return withRetry(() => makeRequest(url, { ...options, headers }));
+    try {
+      const result = await withRetry(() => makeRequest(url, { ...options, headers }));
+      return result;
+    } catch (err) {
+      // Handle 429 specifically
+      if (err.message?.includes('429') || err.status === 429) {
+        this.logger.log('warn', 'Rate limit hit (429), backing off...');
+        await new Promise(r => setTimeout(r, 5000)); // Wait 5 seconds on 429
+        return this.request(endpoint, options); // Retry
+      }
+      throw err;
+    }
   }
 
   async listTables() {
@@ -294,17 +351,35 @@ class JSDocStoreClient {
   }
 
   async batchInsert(tableName, records) {
-    // js-doc-store-server doesn't have native batch, so we do sequential
+    // Use the server's native batch insert endpoint
+    const response = await this.request('/admin/batch-insert', {
+      method: 'POST',
+      body: JSON.stringify({ tableName, records })
+    });
+
+    if (response.status !== 200 || !response.data?.success) {
+      throw new Error(`Batch insert failed: ${JSON.stringify(response.data)}`);
+    }
+
+    return response.data;
+  }
+
+  async sequentialInsert(tableName, records) {
+    // Fallback for individual record insertion with error handling
     const results = [];
+    const errors = [];
+
     for (const record of records) {
       try {
         const result = await this.insert(tableName, record);
         results.push(result);
       } catch (err) {
-        this.logger.log('error', `Failed to insert record: ${err.message}`, record);
+        this.logger.log('error', `Failed to insert record: ${err.message}`, { id: record._airtable_id });
+        errors.push({ record, error: err.message });
       }
     }
-    return results;
+
+    return { results, errors };
   }
 
   async testConnection() {
@@ -453,7 +528,7 @@ class RecordTransformer {
 // Main Migration Class
 class AirtableMigrator {
   constructor(options) {
-    this.airtable = new AirtableClient(options.apiKey, options.baseId, options.logger);
+    this.airtable = new AirtableClient(options.apiKey, options.baseId, options.logger, options.rateLimitPerSecond);
     this.target = new JSDocStoreClient(options.targetUrl, options.targetToken, options.logger);
     this.schemaTransformer = new SchemaTransformer();
     this.recordTransformer = new RecordTransformer(this.schemaTransformer);
@@ -474,9 +549,12 @@ class AirtableMigrator {
       // Phase 0: Test connections
       await this.target.testConnection();
 
-      // Phase 1: Discover schema
+      // Phase 1: Discover schema and get source counts
       this.logger.log('info', 'Phase 1: Discovering Airtable schema...');
       const airtableTables = await this.discoverSchema();
+
+      // Get source record counts for validation
+      const sourceCounts = await this.getSourceRecordCounts(airtableTables);
 
       // Phase 2: Create tables in target
       if (!this.options.dryRun) {
@@ -497,6 +575,12 @@ class AirtableMigrator {
         await this.processAttachments();
       }
 
+      // Phase 5: Validate migration
+      if (!this.options.dryRun) {
+        this.logger.log('info', 'Phase 5: Validating migration...');
+        await this.validateMigration(airtableTables, sourceCounts);
+      }
+
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);
       this.logger.log('success', `Migration completed in ${duration}s`);
 
@@ -508,11 +592,116 @@ class AirtableMigrator {
     }
   }
 
+  async getSourceRecordCounts(schemas) {
+    const counts = {};
+    for (const schema of schemas) {
+      let count = 0;
+      try {
+        // Use filter formula to count records efficiently
+        const response = await this.airtable.request(`/${schema.originalName}?pageSize=1`);
+        if (response.status === 200) {
+          // Airtable doesn't give total count easily, so we'll paginate through
+          for await (const batch of this.airtable.listRecords(schema.originalName, { pageSize: 100 })) {
+            count += batch.length;
+          }
+        }
+      } catch (err) {
+        this.logger.log('warn', `Could not get count for ${schema.tableName}: ${err.message}`);
+      }
+      counts[schema.tableName] = count;
+      this.logger.log('verbose', `Source count for ${schema.tableName}: ${count}`);
+    }
+    return counts;
+  }
+
+  async validateMigration(schemas, sourceCounts) {
+    this.logger.log('info', 'Validating migrated data...');
+    const validation = {
+      passed: true,
+      tables: []
+    };
+
+    for (const schema of schemas) {
+      const tableName = schema.tableName;
+      const sourceCount = sourceCounts[tableName] || 0;
+
+      try {
+        // Query target to count records
+        const response = await this.target.request('/admin/query', {
+          method: 'POST',
+          body: JSON.stringify({ tableName, filter: {}, limit: 1 })
+        });
+
+        // Get actual count by querying all
+        const countResponse = await this.target.request('/admin/query', {
+          method: 'POST',
+          body: JSON.stringify({ tableName, filter: {}, limit: 100000 })
+        });
+
+        const targetCount = countResponse.data?.data?.length || 0;
+        const match = sourceCount === targetCount;
+
+        validation.tables.push({
+          table: tableName,
+          source: sourceCount,
+          target: targetCount,
+          match,
+          diff: targetCount - sourceCount
+        });
+
+        if (!match) {
+          validation.passed = false;
+          this.logger.log('warn', `Count mismatch for ${tableName}: ${sourceCount} → ${targetCount} (${targetCount > sourceCount ? '+' : ''}${targetCount - sourceCount})`);
+        } else {
+          this.logger.log('success', `${tableName}: ${targetCount} records ✓`);
+        }
+      } catch (err) {
+        validation.passed = false;
+        validation.tables.push({
+          table: tableName,
+          source: sourceCounts[tableName],
+          target: null,
+          match: false,
+          error: err.message
+        });
+        this.logger.log('error', `Failed to validate ${tableName}: ${err.message}`);
+      }
+    }
+
+    // Print validation summary
+    console.log('\n========== VALIDATION RESULTS ==========');
+    const matched = validation.tables.filter(t => t.match).length;
+    const total = validation.tables.length;
+    console.log(`Tables validated: ${matched}/${total}`);
+
+    if (!validation.passed) {
+      console.log('\n⚠️  Some tables have count mismatches:');
+      validation.tables.filter(t => !t.match).forEach(t => {
+        console.log(`  - ${t.table}: expected ${t.source}, got ${t.target} (${t.diff > 0 ? '+' : ''}${t.diff})`);
+      });
+    } else {
+      console.log('\n✅ All tables validated successfully!');
+    }
+    console.log('========================================\n');
+
+    return validation;
+  }
+
   async discoverSchema() {
     const tables = await this.airtable.listTables();
     const schemas = [];
 
     for (const table of tables) {
+      // Filter by table name if specified
+      if (this.options.tableName) {
+        const sanitizedTarget = this.schemaTransformer.sanitizeTableName(this.options.tableName);
+        const sanitizedCurrent = this.schemaTransformer.sanitizeTableName(table.name);
+        if (sanitizedTarget !== sanitizedCurrent && this.options.tableName !== table.name) {
+          this.logger.log('verbose', `Skipping table: ${table.name} (not matching --table-name)`);
+          continue;
+        }
+      }
+
       this.logger.log('verbose', `Processing table: ${table.name}`);
 
       try {
@@ -523,6 +712,10 @@ class AirtableMigrator {
       } catch (err) {
         this.logger.log('error', `Failed to process table ${table.name}: ${err.message}`);
       }
+    }
+
+    if (this.options.tableName && schemas.length === 0) {
+      throw new Error(`Table "${this.options.tableName}" not found in Airtable base`);
     }
 
     this.logger.log('success', `Discovered ${schemas.length} tables`);
@@ -574,11 +767,25 @@ class AirtableMigrator {
         }
 
         try {
-          await this.target.batchInsert(schema.tableName, transformed);
+          const result = await this.target.batchInsert(schema.tableName, transformed);
           tableRecords += batch.length;
           this.logger.stats.records += batch.length;
+
+          // Log any individual record errors from batch
+          if (result.errors && result.errors.length > 0) {
+            this.logger.log('warn', `Batch had ${result.errors.length} failed records, retrying individually...`);
+            const failedRecords = result.errors.map(e => transformed.find(r => r._airtable_id === e.id)).filter(Boolean);
+            if (failedRecords.length > 0) {
+              const retryResult = await this.target.sequentialInsert(schema.tableName, failedRecords);
+              this.logger.log('info', `Retry: ${retryResult.results.length} succeeded, ${retryResult.errors.length} failed`);
+            }
+          }
         } catch (err) {
-          this.logger.log('error', `Failed to insert batch: ${err.message}`);
+          this.logger.log('error', `Failed to insert batch: ${err.message}. Falling back to sequential...`);
+          // Fallback to sequential insertion on complete batch failure
+          const fallbackResult = await this.target.sequentialInsert(schema.tableName, transformed);
+          tableRecords += fallbackResult.results.length;
+          this.logger.stats.records += fallbackResult.results.length;
         }
       }
 
@@ -606,7 +813,8 @@ function parseArgs() {
     batchSize: 100,
     includeAttachments: true,
     dryRun: false,
-    verbose: false
+    verbose: false,
+    rateLimitPerSecond: CONFIG.rateLimitPerSecond
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -625,6 +833,12 @@ function parseArgs() {
         break;
       case '--batch-size':
         options.batchSize = parseInt(args[++i]) || 100;
+        break;
+      case '--rate-limit':
+        options.rateLimitPerSecond = parseInt(args[++i]) || 4;
+        break;
+      case '--table-name':
+        options.tableName = args[++i];
         break;
       case '--no-attachments':
         options.includeAttachments = false;
@@ -665,6 +879,8 @@ Required Options:
 Optional Options:
   --target-token   JWT token for authentication
   --batch-size     Records per batch (default: 100)
+  --rate-limit     Max API requests per second (default: 4)
+  --table-name     Migrate only specific table (default: all tables)
   --no-attachments Skip downloading attachments
   --dry-run        Preview without importing
   --verbose        Detailed logging
