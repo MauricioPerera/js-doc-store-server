@@ -73,11 +73,6 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Debug node_modules
-        run: |
-          ls -la node_modules/ | head -20
-          ls -la node_modules/js-doc-store 2>/dev/null || echo "js-doc-store not found in node_modules"
-
       - name: Install esbuild
         run: npm install -g esbuild
 
