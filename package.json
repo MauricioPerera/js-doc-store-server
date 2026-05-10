@@ -1,0 +1,26 @@
+{
+  "name": "js-doc-store-server",
+  "version": "1.0.0",
+  "description": "REST API server for js-doc-store with JWT auth and multi-agent collaboration",
+  "main": "server.js",
+  "keywords": ["rest-api", "database", "document-store", "multi-agent", "jwt", "crud"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MauricioPerera/js-doc-store-server"
+  },
+  "dependencies": {
+    "axios": "^1.16.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "js-doc-store": "^1.2.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node test_collaboration.js"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "license": "MIT"
+}

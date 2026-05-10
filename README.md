@@ -1,0 +1,81 @@
+# js-doc-store-server
+
+API REST para js-doc-store con autenticación JWT, RBAC y multi-agent collaboration.
+
+## 🚀 Quick Start
+
+```bash
+npm install
+npm start
+```
+
+Server runs on `http://localhost:3000`
+
+## 📚 Documentación
+
+- [API Endpoints](#api-endpoints)
+- [Autenticación](#autenticación)
+- [Configuración](#configuración)
+
+## API Endpoints
+
+### Públicos
+- `GET /public/tables` - Listar tablas
+- `GET /public/query/:table` - Query público
+
+### Auth
+- `POST /auth/register` - Registrar usuario
+- `POST /auth/login` - Login (retorna JWT)
+
+### Admin (requiere JWT)
+- `POST /admin/create-table` - Crear tabla
+- `POST /admin/insert` - Insertar documento
+- `POST /admin/query` - Query con filtros
+- `POST /admin/update` - Actualizar documentos
+- `POST /admin/aggregate` - Pipeline de agregación
+- `POST /admin/create-view` - Crear vista
+- `POST /admin/deploy-template` - Deploy template
+
+### Vault
+- `POST /admin/vault/add` - Guardar secreto
+- `GET /admin/vault/list` - Listar secretos
+- `POST /admin/vault/execute` - Ejecutar con secreto
+
+## Autenticación
+
+```bash
+# 1. Registrar
+curl -X POST http://localhost:3000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@test.com","password":"pass123","name":"User"}'
+
+# 2. Login
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@test.com","password":"pass123"}'
+
+# 3. Usar token
+curl -X POST http://localhost:3000/admin/insert \
+  -H "Authorization: Bearer TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"tableName":"users","data":{"name":"Alice"}}'
+```
+
+## Configuración
+
+Variables de entorno:
+- `PORT` - Puerto (default: 3000)
+- `DATA_DIR` - Directorio de datos
+- `JWT_SECRET` - Secreto para JWT
+- `DB_ENCRYPTION_KEY` - Clave de encriptación
+
+## Dependencias
+
+- [js-doc-store](https://github.com/MauricioPerera/js-doc-store) - Core database
+- express - Web server
+- cors - CORS headers
+- axios - HTTP client
+
+## Licencia
+
+MIT

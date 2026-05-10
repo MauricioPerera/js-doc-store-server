@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sovereign Data Dashboard</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f6; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: auto; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
+        h1 { color: #2c3e50; margin: 0; }
+        .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: transform 0.2s; }
+        .card:hover { transform: translateY(-5px); }
+        .card h3 { margin-top: 0; color: #3498db; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .data-item { font-size: 0.9em; margin: 8px 0; color: #666; }
+        .data-item b { color: #333; }
+        .status { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 0.8em; font-weight: bold; }
+        .status-active { background: #d4edda; color: #155724; }
+        .status-pending { background: #fff3cd; color: #856404; }
+        .loading { text-align: center; font-size: 1.2em; color: #888; margin-top: 50px; }
+        select { padding: 8px; border-radius: 5px; border: 1px solid #ccc; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Sovereign Data Dashboard</h1>
+            <div id="server-status">🟢 Server Connected</div>
+        </header>
+
+        <div id="controls">
+            <label for="table-select">View Collection:</label>
+            <select id="table-select" onchange="loadData()">
+                <option value="">Loading tables...</option>
+            </select>
+        </div>
+
+        <div id="main-content" class="card-grid">
+            <div class="loading">Please select a table to view data...</div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        async function fetchTables() {
+            try {
+                const res = await fetch(`${API_BASE}/public/tables`);
+                const data = await res.json();
+                const select = document.getElementById('table-select');
+                select.innerHTML = '<option value="">-- Choose a Table --</option>';
+                data.tables.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t;
+                    opt.innerText = t;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                console.error("Error loading tables", e);
+                document.getElementById('server-status').innerText = "🔴 Server Error";
+            }
+        }
+
+        async function loadData() {
+            const tableName = document.getElementById('table-select').value;
+            const content = document.getElementById('main-content');
+            
+            if (!tableName) {
+                content.innerHTML = '<div class="loading">Please select a table to view data...</div>';
+                return;
+            }
+
+            content.innerHTML = '<div class="loading">Loading records...</div>';
+
+            try {
+                const res = await fetch(`${API_BASE}/public/query/${tableName}`);
+                const { data } = await res.json();
+
+                if (!data || data.length === 0) {
+                    content.innerHTML = '<div class="loading">No records found in this table.</div>';
+                    return;
+                }
+
+                content.innerHTML = '';
+                data.forEach(doc => {
+                    const card = document.createElement('div');
+                    card.className = 'card';
+                    
+                    let html = `<h3>${doc.Name || doc.title || 'Untitled'}</h3>`;
+                    for (const [key, value] of Object.entries(doc)) {
+                        if (key === '_id') continue;
+                        if (key === 'Name' || key === 'title') continue;
+
+                        const isStatus = key.toLowerCase().includes('status');
+                        const statusClass = isStatus ? (value === 'Active' ? 'status-active' : 'status-pending') : '';
+                        
+                        html += `<div class="data-item">
+                            <b>${key}:</b> 
+                            <span class="status ${statusClass}">${value}</span>
+                        </div>`;
+                    }
+                    card.innerHTML = html;
+                    content.appendChild(card);
+                });
+
+            } catch (e) {
+                console.error("Error loading data", e);
+                content.innerHTML = '<div class="loading">Error loading data from server.</div>';
+            }
+        }
+
+        fetchTables();
+    </script>
+</body>
+</html>
