@@ -1,7 +1,7 @@
 const axios = require('axios');
 
-const BASE_URL = 'https://js-doc-store-server.rckflr.workers.dev';
-const EMBEDDING_URL = 'https://gemma-embedding-worker.rckflr.workers.dev';
+const BASE_URL = process.env.API_URL || 'https://YOUR_WORKER_SUBDOMAIN.workers.dev';
+const EMBEDDING_URL = process.env.EMBEDDING_URL || 'https://gemma-embedding-worker.YOUR_SUBDOMAIN.workers.dev';
 
 async function test() {
     console.log('Testing direct embedding integration...\n');

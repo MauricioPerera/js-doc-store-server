@@ -2,7 +2,7 @@
 
 Complete REST API documentation for js-doc-store-server.
 
-**Base URL**: `https://js-doc-store-server.rckflr.workers.dev`
+**Base URL**: `https://YOUR_WORKER_SUBDOMAIN.workers.dev`
 
 ---
 
@@ -47,7 +47,7 @@ List all available tables/collections.
 
 **Request:**
 ```bash
-curl https://js-doc-store-server.rckflr.workers.dev/public/tables
+curl https://YOUR_WORKER_SUBDOMAIN.workers.dev/public/tables
 ```
 
 **Response:**
@@ -71,7 +71,7 @@ Query a table with public access (limited).
 
 **Request:**
 ```bash
-curl https://js-doc-store-server.rckflr.workers.dev/public/query/users
+curl https://YOUR_WORKER_SUBDOMAIN.workers.dev/public/query/users
 ```
 
 **Response:**
@@ -108,7 +108,7 @@ Create the first admin user when the system has no users. This endpoint only wor
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/auth/bootstrap \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/auth/bootstrap \
   -H "Content-Type: application/json" \
   -d '{
     "email": "admin@example.com",
@@ -162,7 +162,7 @@ Register a new user.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/auth/register \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "email": "user@example.com",
@@ -209,7 +209,7 @@ Authenticate and get JWT token.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/auth/login \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "user@example.com",
@@ -281,7 +281,7 @@ Create a new table with schema.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/create-table \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/create-table \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -324,7 +324,7 @@ Insert a document into a table.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/insert \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/insert \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -373,7 +373,7 @@ Query documents with filters, sort, and limit.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/query \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/query \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -430,7 +430,7 @@ Update documents matching a filter.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/update \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/update \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -493,7 +493,7 @@ Perform aggregation pipeline operations.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/aggregate \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/aggregate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -802,7 +802,7 @@ Remove a vector from the index.
 
 **Example:**
 ```bash
-curl -X DELETE https://js-doc-store-server.rckflr.workers.dev/admin/vector/articles/article-123 \
+curl -X DELETE https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/articles/article-123 \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -831,7 +831,7 @@ Get a specific vector by ID.
 
 **Example:**
 ```bash
-curl https://js-doc-store-server.rckflr.workers.dev/admin/vector/articles/article-123 \
+curl https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/articles/article-123 \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -873,7 +873,7 @@ Generate embeddings for any text.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/embed \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/embed \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -922,7 +922,7 @@ Index a document with auto-generated embedding from text content.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/index-with-text \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/index-with-text \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -975,7 +975,7 @@ Search vectors using natural language query (auto-embeds the query text).
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/search-by-text \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/search-by-text \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1030,7 +1030,7 @@ Batch index multiple documents with auto-generated embeddings.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/batch-index-with-text \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/batch-index-with-text \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1146,7 +1146,7 @@ Execute an HTTP request using a stored secret.
 **Example with headerType:**
 ```bash
 # Bearer token (default)
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vault/execute \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vault/execute \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1157,7 +1157,7 @@ curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vault/execute 
   }'
 
 # Custom header
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vault/execute \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vault/execute \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1169,7 +1169,7 @@ curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vault/execute 
   }'
 
 # Query parameter
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vault/execute \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vault/execute \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1228,24 +1228,24 @@ All errors follow this format:
 
 ```bash
 # 1. Login
-TOKEN=$(curl -s -X POST https://js-doc-store-server.rckflr.workers.dev/auth/login \
+TOKEN=$(curl -s -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"user@example.com","password":"password"}' | jq -r '.token')
 
 # 2. Create table
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/create-table \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/create-table \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"tableName":"products","columns":[{"name":"Name","type":"text","required":true}]}'
 
 # 3. Insert document
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/insert \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/insert \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"tableName":"products","data":{"Name":"Laptop"}}'
 
 # 4. Query
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/query \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/query \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"tableName":"products","filter":{}}'
@@ -1259,7 +1259,7 @@ TOKEN=$(curl -s -X POST ...)
 
 # 1. Index a document with embedding
 EMBEDDING='[0.1, -0.2, 0.3, ...]'  # From your embedding model
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/index \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/index \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
@@ -1271,7 +1271,7 @@ curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/index \
 
 # 2. Semantic search
 QUERY_EMBEDDING='[0.15, -0.18, 0.25, ...]'
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/search \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/search \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
@@ -1281,7 +1281,7 @@ curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/search 
   }"
 
 # 3. Hybrid search (vector + text)
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/search-hybrid \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/search-hybrid \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
@@ -1292,7 +1292,7 @@ curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/search-
   }"
 
 # 4. Cross-collection search
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/search-cross \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/search-cross \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
@@ -1302,11 +1302,11 @@ curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/search-
   }"
 
 # 5. List collections
-curl https://js-doc-store-server.rckflr.workers.dev/admin/vector/collections \
+curl https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/collections \
   -H "Authorization: Bearer $TOKEN"
 
 # 6. Delete a vector
-curl -X DELETE https://js-doc-store-server.rckflr.workers.dev/admin/vector/articles/article-001 \
+curl -X DELETE https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/articles/article-001 \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -1320,7 +1320,7 @@ EMBEDDING=$(curl -s "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_I
   -d '{"text":["machine learning in healthcare"]}' | jq '.result.data[0]')
 
 # Index it
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/index \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/index \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "{

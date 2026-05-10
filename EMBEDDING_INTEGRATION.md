@@ -26,7 +26,7 @@ Generate embeddings for any text.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/embed \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/embed \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -50,7 +50,7 @@ Index a document with auto-generated embedding.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/index-with-text \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/index-with-text \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -67,7 +67,7 @@ Search vectors using natural language (auto-embeds the query).
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/search-by-text \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/search-by-text \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -83,7 +83,7 @@ Batch index multiple documents with embeddings.
 
 **Request:**
 ```bash
-curl -X POST https://js-doc-store-server.rckflr.workers.dev/admin/vector/batch-index-with-text \
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/batch-index-with-text \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{

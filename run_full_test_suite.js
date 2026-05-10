@@ -8,7 +8,7 @@ const { execSync } = require('child_process');
 const path = require('path');
 
 const CONFIG = {
-  API_URL: process.env.API_URL || 'https://js-doc-store-server.rckflr.workers.dev',
+  API_URL: process.env.API_URL || 'https://YOUR_WORKER_SUBDOMAIN.workers.dev',
   ADMIN_EMAIL: process.env.ADMIN_EMAIL || 'admin@example.com',
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || 'Admin123!'
 };

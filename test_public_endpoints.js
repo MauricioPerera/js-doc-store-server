@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const BASE_URL = process.env.API_URL || 'https://js-doc-store-server.rckflr.workers.dev';
+const BASE_URL = process.env.API_URL || 'https://YOUR_WORKER_SUBDOMAIN.workers.dev';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin123!';
 

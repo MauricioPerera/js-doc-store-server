@@ -65,13 +65,14 @@ Ver [EMBEDDING_INTEGRATION.md](./EMBEDDING_INTEGRATION.md) para más detalles.
 
 ## 🌐 Deploy en Cloudflare Workers
 
-El servidor está desplegado y disponible en:
-
-```
-https://js-doc-store-server.rckflr.workers.dev
-```
-
 Ver [DEPLOY.md](./DEPLOY.md) para instrucciones detalladas de deploy.
+
+Tu servidor estará disponible en:
+```
+https://YOUR_WORKER_NAME.YOUR_ACCOUNT.workers.dev
+```
+
+> ⚠️ **Seguridad**: Nunca expongas tu URL real en repositorios públicos. Usa siempre `YOUR_WORKER_SUBDOMAIN` como placeholder.
 
 ---
 
@@ -195,7 +196,7 @@ node test_embedding_integration.js
 ```
 
 Variables de entorno para tests:
-- `API_URL` - URL del servidor (default: https://js-doc-store-server.rckflr.workers.dev)
+- `API_URL` - URL del servidor (default: https://YOUR_WORKER_SUBDOMAIN.workers.dev)
 - `ADMIN_EMAIL` - Email del admin
 - `ADMIN_PASSWORD` - Password del admin
 

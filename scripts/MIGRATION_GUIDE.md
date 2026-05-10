@@ -46,7 +46,7 @@ export AIRTABLE_BASE_ID="appXXXXXXXXXXXXXX"
 node airtable-migrator.js \
   --api-key "$AIRTABLE_API_KEY" \
   --base-id "$AIRTABLE_BASE_ID" \
-  --target-url "https://js-doc-store-server.rckflr.workers.dev" \
+  --target-url "https://js-doc-store-server.YOUR_SUBDOMAIN.workers.dev" \
   --target-token "YOUR_JWT_TOKEN" \
   --verbose
 
@@ -371,7 +371,7 @@ echo "=== Airtable to js-doc-store Migration ==="
 # Configuration
 AIRTABLE_API_KEY="${AIRTABLE_API_KEY:-keyXXX}"
 AIRTABLE_BASE_ID="${AIRTABLE_BASE_ID:-appXXX}"
-TARGET_URL="https://js-doc-store-server.rckflr.workers.dev"
+TARGET_URL="https://js-doc-store-server.YOUR_SUBDOMAIN.workers.dev"
 TARGET_TOKEN="eyJ..."
 
 # Phase 1: Dry run
