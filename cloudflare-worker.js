@@ -26,6 +26,27 @@ const VECTOR_CONFIG = {
 };
 
 // Embedding worker configuration
+// Static file serving helper
+async function serveStaticFile(path, env) {
+  if (!env.ASSETS) return null;
+
+  // Default to index.html for root
+  if (path === '/' || path === '') {
+    path = '/index.html';
+  }
+
+  try {
+    const assetRequest = new Request(`https://assets${path}`);
+    const response = await env.ASSETS.fetch(assetRequest);
+    if (response.status === 404) {
+      return null;
+    }
+    return response;
+  } catch (e) {
+    return null;
+  }
+}
+
 const EMBEDDING_CONFIG = {
   // URL of the Gemma embedding worker
   workerUrl: null, // Will be set from env.EMBEDDING_WORKER_URL
@@ -307,14 +328,18 @@ export default {
 
     // Parse JSON body (only once per request)
     let parsedBody = null;
+    let bodyParsed = false;
     const json = async () => {
-      if (parsedBody) return parsedBody;
+      if (bodyParsed) return parsedBody;
       try {
         parsedBody = await request.json();
+        bodyParsed = true;
         return parsedBody;
       } catch (e) {
         console.error('JSON parse error:', e.message);
-        return {};
+        bodyParsed = true;
+        parsedBody = {};
+        return parsedBody;
       }
     };
 
@@ -462,8 +487,15 @@ export default {
 
     // POST /auth/login
     if (path === '/auth/login' && request.method === 'POST') {
-      const body = await json();
       try {
+        const rawBody = await request.text();
+        console.log('Raw body:', rawBody);
+        const body = rawBody ? JSON.parse(rawBody) : {};
+        console.log('Parsed body:', JSON.stringify(body));
+        // Validate required fields
+        if (!body.email || !body.password) {
+          return new Response(JSON.stringify({ success: false, message: 'Email and password are required' }), { status: 400, headers: corsHeaders });
+        }
         const result = await auth.login(body.email, body.password);
         await db.flush();
         await docAdapter.persist();
@@ -476,6 +508,28 @@ export default {
     }
 
     // --- ADMIN ENDPOINTS (require auth) ---
+
+    // GET /admin/tables - List all tables
+    if (path === '/admin/tables' && request.method === 'GET') {
+      const authCheck = await verifyAuth(request, 'admin');
+      if (authCheck.error) {
+        return new Response(JSON.stringify({ success: false, message: authCheck.error }), { status: authCheck.status, headers: corsHeaders });
+      }
+
+      try {
+        // Get all keys from KV with the table prefix
+        const allKeys = await docAdapter.listKeys();
+        // Filter for table keys (they end with .json and contain table data)
+        const tableNames = allKeys
+          .filter(key => key.endsWith('.json') && !key.includes('/'))
+          .map(key => key.replace('.json', ''))
+          .filter(name => !name.startsWith('_') && name !== 'users' && name !== 'sessions');
+
+        return new Response(JSON.stringify({ success: true, tables: tableNames }), { headers: corsHeaders });
+      } catch (e) {
+        return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500, headers: corsHeaders });
+      }
+    }
 
     // POST /admin/create-table
     if (path === '/admin/create-table' && request.method === 'POST') {
@@ -1476,17 +1530,26 @@ export default {
       }), { headers: corsHeaders });
     }
 
-    // Static Assets (Admin UI) - Serve from ASSETS binding
+    // Static Assets (Admin UI) - Serve from ASSETS binding or inline fallback
     // Only for GET/HEAD requests to avoid consuming POST body
-    if (env.ASSETS && (request.method === 'GET' || request.method === 'HEAD')) {
-      try {
-        // Try to serve static assets from the public directory
-        const assetResponse = await env.ASSETS.fetch(request);
-        if (assetResponse.status !== 404) {
-          return assetResponse;
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      const staticFile = await serveStaticFile(path, env);
+      if (staticFile) {
+        // Add anti-cache headers for HTML and JS files during development
+        const url = new URL(request.url);
+        const path = url.pathname;
+        if (path.endsWith('.html') || path.endsWith('.js')) {
+          const newHeaders = new Headers(staticFile.headers);
+          newHeaders.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+          newHeaders.set('Pragma', 'no-cache');
+          newHeaders.set('Expires', '0');
+          return new Response(staticFile.body, {
+            status: staticFile.status,
+            statusText: staticFile.statusText,
+            headers: newHeaders
+          });
         }
-      } catch (e) {
-        // Asset not found, continue to API 404
+        return staticFile;
       }
     }
 

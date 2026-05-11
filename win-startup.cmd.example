@@ -1,0 +1,11 @@
+@echo off
+setlocal
+
+REM Ajustar esta ruta a tu instalacion local del proyecto
+REM Ejemplo: cd /d "C:\Users\TU_USUARIO\projects\js-doc-store-server"
+cd /d "D:\repos\ollama\js-doc-store-server"
+
+echo [win-startup] Checking js-doc-store-server...
+node daemon.js start
+
+endlocal

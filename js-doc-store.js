@@ -2080,6 +2080,8 @@ class Auth {
    * @returns {Promise<{ token: string, user: object }>}
    */
   async login(email, password) {
+    if (!email || typeof email !== 'string') throw new Error('Email is required');
+    if (!password || typeof password !== 'string') throw new Error('Password is required');
     const user = this._users.findOne({ email: email.toLowerCase().trim() });
     if (!user) throw new Error('Invalid credentials');
     if (!user.active) throw new Error('Account disabled');

@@ -17,6 +17,18 @@ pi-shared-data/
 # Logs
 logs/
 *.log
+.server.log
+
+# Runtime
+.server.pid
+
+# Local config
+.claude/
+
+# Infrastructure scripts with hardcoded IPs/hosts (keep private)
+ssh-setup.js
+vps-setup.js
+win-startup.cmd
 
 # IDE
 .vscode/
