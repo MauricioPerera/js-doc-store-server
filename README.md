@@ -4,6 +4,8 @@ API REST para js-doc-store con autenticación JWT, RBAC, multi-agent collaborati
 
 ## 🚀 Quick Start
 
+> **Nota**: El deployment automático se realiza vía GitHub Actions a Cloudflare Workers.
+
 ```bash
 npm install
 npm start
