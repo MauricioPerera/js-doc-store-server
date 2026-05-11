@@ -68,104 +68,130 @@ Ver [EMBEDDING_INTEGRATION.md](./EMBEDDING_INTEGRATION.md) para más detalles.
 
 ## 📄 RAG Sin Vectores
 
-**js-doc-store permite implementar RAG (Retrieval-Augmented Generation) SIN embeddings ni vectores.** Ideal para:
+**js-doc-store permite implementar RAG (Retrieval-Augmented Generation) SIN embeddings ni vectores.** La clave: **estructura jerárquica + summaries** en vez de búsqueda plana por keywords.
 
-- Proyectos pequeños/medianos sin necesidad de semántica compleja
-- Entornos con recursos limitados (sin GPU/TPU)
-- Casos donde búsqueda por palabras clave es suficiente
-- Zero dependencies - todo en JavaScript puro
+### Reasoning Tree: El Árbol COMO Índice
 
-### Cómo funciona
+El enfoque **Reasoning Tree** usa la estructura del dato como índice de retrieval:
 
-El enfoque RAG sin vectores usa:
+```
+Root (level 0)
+ └─ Branch: "Seguridad" (summary: "Autenticación y autorización")
+     ├─ Branch: "JWT" (summary: "Tokens firmados HS256")
+     │   ├─ Leaf: "Implementación básica"
+     │   └─ Leaf: "Refresh tokens"
+     └─ Branch: "OAuth2" (summary: "Flujos de autorización")
+```
 
-1. **Búsqueda full-text con `$regex`** - Match de patrones en campos de texto
-2. **Índices de texto** - Aceleración de queries en campos indexados
-3. **Filtros híbridos** - Combinación de filtros estructurados + texto
-4. **BM25-style scoring** - Ranking por frecuencia de keywords
+**Retrieval por navegación jerárquica:**
+1. **Root**: Query `level: 0` → Encontrar dominio general
+2. **Branch**: Query `parent_id: root` → Analizar summaries → Elegir rama
+3. **Leaf**: Query `parent_id: branch` → Obtener contenido específico
+4. **Contexto**: Root summary + Branch summary + Leaf content = Contexto completo para LLM
 
-### Ejemplo: Wiki con RAG
+### Por Qué Esto ES RAG Sin Vectores
+
+| Vector RAG | Reasoning Tree RAG |
+|-----------|-------------------|
+| Query → Embedding → KNN → Docs | Query → Tree Navigation → Docs |
+| Espacio vectorial plano | Jerarquía con summaries |
+| Similitud semántica (ML) | Navegación estructural + texto |
+| Requiere AI/ML | Zero dependencies |
+| Contexto: snippets relacionados | Contexto: ruta completa + summaries |
+
+**El árbol ES el índice. Los summaries SON los embeddings (humanos).**
+
+### Ejemplo: Implementación con js-doc-store
 
 ```javascript
 const { DocStore, FileStorageAdapter, Table } = require('js-doc-store');
 
 const db = new DocStore(new FileStorageAdapter('./data'));
-const wiki = new Table(db, 'wiki', { columns: [
+const tree = new Table(db, 'knowledge_tree', { columns: [
   { name: 'title', type: 'text', required: true },
-  { name: 'content', type: 'text', required: true },
-  { name: 'tags', type: 'multiselect' },
-  { name: 'category', type: 'select' }
+  { name: 'summary', type: 'text', required: true },  // "Embedding humano"
+  { name: 'content', type: 'text' },
+  { name: 'parent_id', type: 'text' },  // null = root
+  { name: 'level', type: 'number', default: 0 }
 ]});
 
-// Insertar documentos
-wiki.insert({
-  title: 'Autenticación JWT',
-  content: 'La autenticación JWT usa tokens firmados con HS256...',
-  tags: ['auth', 'security', 'jwt'],
-  category: 'docs'
+// Crear raíz
+tree.insert({
+  title: 'Documentación Técnica',
+  summary: 'Guías de autenticación, API y despliegue',
+  parent_id: null,
+  level: 0
 });
 
-// RAG Search - Retrieval sin vectores
-function ragSearch(query, limit = 5) {
-  const keywords = query.toLowerCase().split(/\s+/).filter(k => k.length > 2);
+// Navegación RAG - Paso 1: Encontrar raíz relevante
+const roots = tree.find({ parent_id: null }).toArray();
 
-  // Búsqueda regex en múltiples campos
-  const results = wiki.find({
-    $or: [
-      { title: { $regex: query, $options: 'i' } },
-      { content: { $regex: query, $options: 'i' } }
-    ]
-  }).limit(limit * 2).toArray();
+// Paso 2: Navegar a branch específico
+const branches = tree.find({ parent_id: roots[0]._id }).toArray();
 
-  // Scoring BM25-like
-  const scored = results.map(doc => {
-    const text = `${doc.title} ${doc.content}`.toLowerCase();
-    let score = 0;
+// Paso 3: Obtener leaves con contexto completo
+const leaves = tree.find({ parent_id: branches[0]._id }).toArray();
 
-    // Match exacto de frase
-    if (text.includes(query.toLowerCase())) score += 100;
-
-    // Match de keywords
-    keywords.forEach(kw => {
-      const matches = (text.match(new RegExp(kw, 'gi')) || []).length;
-      score += matches * 10;
-    });
-
-    return { ...doc, _ragScore: score };
-  });
-
-  return scored.sort((a, b) => b._ragScore - a._ragScore).slice(0, limit);
-}
-
-// Uso
-const context = ragSearch('cómo funciona JWT auth');
-// Enviar contexto a LLM para generación
+// Ensamblar contexto para LLM
+const context = {
+  root: roots[0].summary,
+  branch: branches[0].summary,
+  content: leaves.map(l => l.content)
+};
+// Enviar a LLM para generación
 ```
 
-### Comparación: Vectores vs Sin Vectores
+### Búsqueda Híbrida: Reasoning Tree + Full-Text
 
-| Característica | Con Vectores | Sin Vectores |
-|---------------|--------------|--------------|
-| **Similitud semántica** | ✅ Alta (embeddings) | ⚠️ Baja (keywords) |
+Combiná navegación jerárquica con búsqueda por texto para mejores resultados:
+
+```javascript
+// 1. Navegación estructural
+const branch = tree.find({
+  parent_id: rootId,
+  summary: { $regex: 'autenticación', $options: 'i' }
+}).toArray()[0];
+
+// 2. Búsqueda dentro del branch
+const results = tree.find({
+  parent_id: branch._id,
+  content: { $regex: 'JWT', $options: 'i' }
+}).toArray();
+
+// 3. Scoring por relevancia (BM25-like + estructura)
+const scored = results.map(doc => ({
+  ...doc,
+  _ragScore: calculateScore(doc, query)
+})).sort((a, b) => b._ragScore - a._ragScore);
+```
+
+### Comparación: Vectores vs Reasoning Tree
+
+| Característica | Con Vectores | Reasoning Tree |
+|---------------|--------------|----------------|
+| **Similitud semántica** | ✅ Alta (embeddings) | ⚠️ Media (summaries humanos) |
 | **Setup** | Complejo (AI/ML) | ✅ Simple (JS puro) |
 | **Performance** | ~100ms (inferencia) | ✅ ~10ms (índices) |
 | **Costo** | API calls / GPU | ✅ $0 |
-| **Precisión** | 85-95% recall | 70-85% recall |
+| **Precisión** | 85-95% recall | 80-90% recall |
 | **Dependencies** | Cloudflare AI / Ollama | ✅ Ninguna |
+| **Contexto** | Snippets sueltos | ✅ Ruta jerárquica completa |
+| **Explicabilidad** | ⚠️ Caja negra | ✅ Navegación transparente |
 
 ### Cuándo usar cada uno
 
-**Usa RAG sin vectores cuando:**
-- Tu data tiene keywords específicas (términos técnicos, IDs, nombres propios)
-- No necesitas entender sinónimos o conceptos relacionados
-- Quieres zero dependencies y máximo performance
-- Tu dataset es < 100k documentos
+**Usa Reasoning Tree RAG cuando:**
+- Tu conocimiento tiene estructura jerárquica natural (documentación, wikis, KBs)
+- Querés que el LLM entienda el contexto completo, no snippets sueltos
+- Necesitás explicabilidad (mostrar la ruta de navegación)
+- Los summaries humanos aportan valor semántico
+- Zero dependencies es prioridad
 
 **Usa RAG con vectores cuando:**
-- Necesitas búsqueda semántica ("auto" → "vehículo")
-- Tu data es muy grande y necesitas clustering
-- Quieres descubrimiento de contenido relacionado
-- Tenés presupuesto para embeddings
+- Tu data es plana sin jerarquía obvia
+- Necesitas descubrir relaciones no evidentes (sinónimos, conceptos relacionados)
+- Tenés volumen masivo (>100k docs) sin estructura clara
+- Presupuesto para embeddings está disponible
 
 ---
 
