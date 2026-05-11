@@ -72,13 +72,15 @@
                                 Tables
                                 <span class="nav-item-badge" id="table-count">0</span>
                             </button>
-                            <button class="nav-item" data-tab="vectors">
+                            <button class="nav-item" data-tab="vectors" title="Coming soon">
                                 <span class="nav-item-icon">🔍</span>
                                 Vector Search
+                                <span class="nav-item-badge" style="background:var(--warning);">Soon</span>
                             </button>
-                            <button class="nav-item" data-tab="query">
+                            <button class="nav-item" data-tab="query" title="Coming soon">
                                 <span class="nav-item-icon">⚡</span>
                                 Query Builder
+                                <span class="nav-item-badge" style="background:var(--warning);">Soon</span>
                             </button>
                         </div>
 
@@ -133,7 +135,7 @@
                                         <h1 class="page-title">Tables</h1>
                                         <p class="page-description">Manage your database tables and collections</p>
                                     </div>
-                                    <button id="btn-create-table" class="btn btn-primary">
+                                    <button id="btn-create-table" class="btn btn-primary" title="Usa la API o CLI">
                                         <span>+</span> Create Table
                                     </button>
                                 </div>
@@ -352,41 +354,12 @@
             </div>
         </div>
 
-        <!-- Create Table Modal -->
-        <div id="modal-create-table" class="modal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>Create New Table</h3>
-                    <button class="btn-close" onclick="closeModal('modal-create-table')">×</button>
-                </div>
-                <div class="modal-body">
-                    <div class="form-group">
-                        <label>Table Name</label>
-                        <input type="text" id="new-table-name" placeholder="my_table">
-                    </div>
-
-                    <div class="columns-builder">
-                        <label>Columns</label>
-                        <div id="columns-list"></div>
-                        <button type="button" class="btn-secondary" onclick="addColumn()">+ Add Column</button>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn-secondary" onclick="closeModal('modal-create-table')">Cancel</button>
-                    <button class="btn-primary" onclick="createTable()">Create</button>
-                </div>
-            </div>
-        </div>
-
         <!-- Table View Modal -->
         <div id="modal-table-view" class="modal modal-large">
             <div class="modal-content">
                 <div class="modal-header">
                     <h3 id="view-table-name">Table Data</h3>
-                    <div class="modal-actions">
-                        <button class="btn-secondary" onclick="showInsertModal()">+ Insert</button>
-                        <button class="btn-close" onclick="closeModal('modal-table-view')">×</button>
-                    </div>
+                    <button class="btn-close" onclick="App.closeModal('modal-table-view')">×</button>
                 </div>
                 <div class="modal-body">
                     <div id="table-data-container" class="table-container">
@@ -395,28 +368,11 @@
                 </div>
             </div>
         </div>
-
-        <!-- Insert/Edit Modal -->
-        <div id="modal-insert" class="modal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3 id="insert-title">Insert Data</h3>
-                    <button class="btn-close" onclick="closeModal('modal-insert')">×</button>
-                </div>
-                <div class="modal-body">
-                    <div id="insert-form" class="insert-form"></div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn-secondary" onclick="closeModal('modal-insert')">Cancel</button>
-                    <button class="btn-primary" onclick="saveData()">Save</button>
-                </div>
-            </div>
-        </div>
     </div>
 
     <!-- Toast Container -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=10"></script>
 </body>
 </html>

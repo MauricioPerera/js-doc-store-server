@@ -31,3 +31,14 @@ Thumbs.db
 # Testing
 coverage/
 .wrangler/
+test-*.js
+test-*.html
+test-*.sh
+test-*.json
+test-results/
+tests/
+*.report.md
+*.report.json
+*-tests.js
+*-test.js
+run-*.js

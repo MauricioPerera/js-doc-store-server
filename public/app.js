@@ -1,789 +1,447 @@
-// js-doc-store Admin UI
-// Vanilla JavaScript - No frameworks
-
+// js-doc-store Admin UI - OPTIMIZED VERSION
 const App = {
-  // State
-  apiUrl: localStorage.getItem('apiUrl') || '',
-  token: localStorage.getItem('token') || '',
-  user: JSON.parse(localStorage.getItem('user') || 'null'),
-  tables: [],
+  // Estado
   currentTable: null,
   tableData: [],
-  collections: [],
-  darkMode: localStorage.getItem('darkMode') !== 'false',
-
-  // DOM Elements
-  elements: {},
-
-  // Toast Notification System
-  toast(type, title, message, duration = 5000) {
-    const container = document.getElementById('toast-container');
-    if (!container) return;
-
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-
-    const icons = {
-      success: '✅',
-      error: '❌',
-      warning: '⚠️',
-      info: 'ℹ️'
-    };
-
-    toast.innerHTML = `
-      <div class="toast-icon">${icons[type] || 'ℹ️'}</div>
-      <div class="toast-content">
-        <div class="toast-title">${title}</div>
-        ${message ? `<div class="toast-message">${message}</div>` : ''}
-      </div>
-      <button class="toast-close" onclick="this.parentElement.remove()">×</button>
-    `;
-
-    container.appendChild(toast);
-
-    // Auto remove
-    setTimeout(() => {
-      if (toast.parentElement) {
-        toast.classList.add('hiding');
-        setTimeout(() => toast.remove(), 300);
-      }
-    }, duration);
-  },
-
-  // Skeleton loader helpers
-  showSkeleton(container, count = 3, type = 'card') {
-    container.innerHTML = Array(count).fill(0).map(() =>
-      `<div class="card skeleton ${type === 'card' ? 'skeleton-card' : ''}">
-        <div class="skeleton-text" style="width: 60%"></div>
-        <div class="skeleton-text" style="width: 40%"></div>
-      </div>`
-    ).join('');
-  },
 
   init() {
-    this.cacheElements();
-    this.bindEvents();
-    this.loadTheme();
+    // Theme
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    this.updateThemeIcon(savedTheme);
 
-    // Check if already logged in
-    if (this.token && this.apiUrl) {
-      this.showDashboard();
-      this.loadInitialData();
+    const token = localStorage.getItem('token');
+    const apiUrl = localStorage.getItem('apiUrl');
+
+    const loginScreen = document.getElementById('login-screen');
+    const dashboardScreen = document.getElementById('dashboard-screen');
+
+    if (!loginScreen || !dashboardScreen) return;
+
+    if (token && apiUrl) {
+      loginScreen.classList.remove('active');
+      dashboardScreen.classList.add('active');
+      this.loadTables();
+      this.updateUserInfo();
+    } else {
+      loginScreen.classList.add('active');
+      dashboardScreen.classList.remove('active');
     }
-  },
 
-  cacheElements() {
-    // Screens
-    this.elements.loginScreen = document.getElementById('login-screen');
-    this.elements.dashboardScreen = document.getElementById('dashboard-screen');
-
-    // Login
-    this.elements.apiUrl = document.getElementById('api-url');
-    this.elements.email = document.getElementById('email');
-    this.elements.password = document.getElementById('password');
-    this.elements.btnLogin = document.getElementById('btn-login');
-    this.elements.loginError = document.getElementById('login-error');
-
-    // Navigation
-    this.elements.navTabs = document.querySelectorAll('.nav-tab, .nav-item');
-    this.elements.tabContents = document.querySelectorAll('.tab-content');
-    this.elements.btnLogout = document.getElementById('btn-logout');
-    this.elements.btnTheme = document.getElementById('btn-theme');
-    this.elements.userName = document.getElementById('user-name');
-    this.elements.userAvatar = document.getElementById('user-avatar');
-    this.elements.userRole = document.getElementById('user-role');
-    this.elements.breadcrumbCurrent = document.getElementById('breadcrumb-current');
-    this.elements.tableCount = document.getElementById('table-count');
-
-    // Tables Tab
-    this.elements.tablesGrid = document.getElementById('tables-grid');
-    this.elements.btnCreateTable = document.getElementById('btn-create-table');
-
-    // Vector Tab
-    this.elements.vectorQuery = document.getElementById('vector-query');
-    this.elements.vectorCollection = document.getElementById('vector-collection');
-    this.elements.vectorLimit = document.getElementById('vector-limit');
-    this.elements.vectorType = document.getElementById('vector-type');
-    this.elements.btnVectorSearch = document.getElementById('btn-vector-search');
-    this.elements.vectorResults = document.getElementById('vector-results');
-    this.elements.collectionsList = document.getElementById('collections-list');
-
-    // Query Tab
-    this.elements.queryTable = document.getElementById('query-table');
-    this.elements.queryLimit = document.getElementById('query-limit');
-    this.elements.queryFilter = document.getElementById('query-filter');
-    this.elements.querySortField = document.getElementById('query-sort-field');
-    this.elements.querySortOrder = document.getElementById('query-sort-order');
-    this.elements.btnRunQuery = document.getElementById('btn-run-query');
-    this.elements.queryResults = document.getElementById('query-results');
-
-    // Settings Tab
-    this.elements.settingsApiUrl = document.getElementById('settings-api-url');
-    this.elements.settingsUser = document.getElementById('settings-user');
-    this.elements.settingsRoles = document.getElementById('settings-roles');
-    this.elements.btnToggleTheme = document.getElementById('btn-toggle-theme');
-
-    // Modals
-    this.elements.modalCreateTable = document.getElementById('modal-create-table');
-    this.elements.modalTableView = document.getElementById('modal-table-view');
-    this.elements.modalInsert = document.getElementById('modal-insert');
+    this.bindEvents();
   },
 
   bindEvents() {
     // Login
-    this.elements.btnLogin.addEventListener('click', () => this.login());
-    this.elements.password.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') this.login();
+    const btnLogin = document.getElementById('btn-login');
+    if (btnLogin) btnLogin.onclick = () => this.login();
+
+    // Enter key en password
+    const passwordInput = document.getElementById('password');
+    if (passwordInput) {
+      passwordInput.onkeypress = (e) => {
+        if (e.key === 'Enter') this.login();
+      };
+    }
+
+    // Logout
+    const logoutBtn = document.querySelector('.user-menu-btn');
+    if (logoutBtn) logoutBtn.onclick = () => this.logout();
+
+    // Navigation tabs - solo tabs existentes
+    document.querySelectorAll('.nav-item').forEach(item => {
+      item.onclick = () => {
+        const tabName = item.dataset.tab;
+        // Vector y Query son placeholders por ahora
+        if (tabName === 'vectors' || tabName === 'query') {
+          this.toast('info', 'Próximamente', 'Esta funcionalidad estará disponible pronto');
+          return;
+        }
+        this.switchTab(tabName);
+      };
     });
 
-    // Navigation
-    this.elements.navTabs.forEach(tab => {
-      tab.addEventListener('click', () => this.switchTab(tab.dataset.tab));
-    });
+    // Theme
+    const themeBtn = document.getElementById('btn-theme');
+    if (themeBtn) themeBtn.onclick = () => this.toggleTheme();
 
-    this.elements.btnLogout.addEventListener('click', () => this.logout());
-    this.elements.btnTheme.addEventListener('click', () => this.toggleTheme());
+    // Notifications (placeholder)
+    const notifBtn = document.getElementById('btn-notifications');
+    if (notifBtn) {
+      notifBtn.onclick = () => {
+        this.toast('info', 'Notificaciones', 'No hay notificaciones pendientes');
+      };
+    }
 
-    // Tables
-    this.elements.btnCreateTable.addEventListener('click', () => this.openModal('modal-create-table'));
+    // Create Table button - disabled con tooltip
+    const createTableBtn = document.getElementById('btn-create-table');
+    if (createTableBtn) {
+      createTableBtn.onclick = () => {
+        this.toast('info', 'Crear tabla', 'Usa la API o CLI para crear tablas');
+      };
+    }
 
-    // Vector Search
-    this.elements.btnVectorSearch.addEventListener('click', () => this.vectorSearch());
-
-    // Query
-    this.elements.btnRunQuery.addEventListener('click', () => this.runQuery());
-
-    // Settings
-    this.elements.btnToggleTheme.addEventListener('click', () => this.toggleTheme());
-
-    // Close modals on background click
-    document.querySelectorAll('.modal').forEach(modal => {
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) this.closeModal(modal.id);
-      });
-    });
+    // Mobile menu toggle
+    this.initMobileMenu();
   },
 
-  // Theme
-  loadTheme() {
-    if (!this.darkMode) {
-      document.documentElement.setAttribute('data-theme', 'light');
-      this.elements.btnTheme.textContent = '☀️';
-      this.elements.btnToggleTheme.textContent = 'Switch to Dark';
+  initMobileMenu() {
+    const sidebar = document.querySelector('.sidebar');
+    const mainContent = document.querySelector('.main-content');
+    const topHeader = document.querySelector('.top-header');
+
+    if (!sidebar || !mainContent || !topHeader) return;
+
+    // Crear botón hamburguesa si no existe
+    let menuToggle = document.querySelector('.menu-toggle');
+    if (!menuToggle) {
+      menuToggle = document.createElement('button');
+      menuToggle.className = 'menu-toggle';
+      menuToggle.innerHTML = '☰';
+      menuToggle.setAttribute('aria-label', 'Toggle menu');
+      menuToggle.onclick = () => {
+        sidebar.classList.toggle('mobile-open');
+      };
+      topHeader.insertBefore(menuToggle, topHeader.firstChild);
     }
   },
 
-  toggleTheme() {
-    this.darkMode = !this.darkMode;
-    localStorage.setItem('darkMode', this.darkMode);
-
-    if (this.darkMode) {
-      document.documentElement.removeAttribute('data-theme');
-      this.elements.btnTheme.textContent = '🌙';
-      this.elements.btnToggleTheme.textContent = 'Switch to Light';
-    } else {
-      document.documentElement.setAttribute('data-theme', 'light');
-      this.elements.btnTheme.textContent = '☀️';
-      this.elements.btnToggleTheme.textContent = 'Switch to Dark';
-    }
-  },
-
-  // API Helpers
-  async apiCall(endpoint, options = {}) {
-    const url = `${this.apiUrl}${endpoint}`;
-    const config = {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(this.token && { 'Authorization': `Bearer ${this.token}` }),
-        ...options.headers
-      },
-      ...options
-    };
-
-    if (config.body && typeof config.body === 'object') {
-      config.body = JSON.stringify(config.body);
-    }
-
-    try {
-      const response = await fetch(url, config);
-      const data = await response.json();
-      return { success: response.ok, status: response.status, data };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  },
-
-  // Authentication
   async login() {
-    const apiUrl = this.elements.apiUrl.value.trim();
-    const email = this.elements.email.value.trim();
-    const password = this.elements.password.value;
+    const apiUrlInput = document.getElementById('api-url');
+    const emailInput = document.getElementById('email');
+    const passwordInput = document.getElementById('password');
+    const errorDiv = document.getElementById('login-error');
 
-    if (!apiUrl || !email || !password) {
-      this.showLoginError('Please fill in all fields');
+    const apiUrl = apiUrlInput?.value?.trim();
+    const email = emailInput?.value?.trim();
+    const password = passwordInput?.value;
+
+    if (!email || !password) {
+      if (errorDiv) {
+        errorDiv.textContent = 'Please fill in email and password';
+        errorDiv.classList.add('visible');
+        setTimeout(() => errorDiv.classList.remove('visible'), 5000);
+      }
       return;
     }
 
-    this.apiUrl = apiUrl.replace(/\/$/, '');
+    // Loading state
+    const btnLogin = document.getElementById('btn-login');
+    const originalText = btnLogin.innerHTML;
+    btnLogin.disabled = true;
+    btnLogin.innerHTML = '⏳ Signing in...';
 
-    const result = await this.apiCall('/auth/login', {
-      method: 'POST',
-      body: { email, password }
-    });
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-    if (result.success && result.data.token) {
-      this.token = result.data.token;
-      this.user = result.data.user;
-      localStorage.setItem('apiUrl', this.apiUrl);
-      localStorage.setItem('token', this.token);
-      localStorage.setItem('user', JSON.stringify(this.user));
-      this.showDashboard();
-      this.loadInitialData();
-    } else {
-      this.showLoginError(result.data?.message || 'Login failed');
+      const response = await fetch(apiUrl + '/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      const data = await response.json();
+
+      if (data.success && data.token) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem('apiUrl', apiUrl);
+        this.init();
+        this.toast('success', 'Welcome!', `Logged in as ${email}`);
+      } else {
+        throw new Error(data.message || 'Login failed');
+      }
+    } catch (e) {
+      if (errorDiv) {
+        errorDiv.textContent = e.name === 'AbortError'
+          ? 'Connection timeout. Please check the API URL.'
+          : 'Error: ' + e.message;
+        errorDiv.classList.add('visible');
+        setTimeout(() => errorDiv.classList.remove('visible'), 5000);
+      }
+    } finally {
+      btnLogin.disabled = false;
+      btnLogin.innerHTML = originalText;
     }
   },
 
   logout() {
-    this.toast('info', 'Logged out', 'See you next time!');
-    this.token = '';
-    this.user = null;
-    this.tables = [];
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    this.showLogin();
+    localStorage.removeItem('apiUrl');
+    this.init();
+    this.toast('info', 'Logged out', 'See you next time!');
   },
 
-  showLoginError(message) {
-    this.elements.loginError.textContent = message;
-    this.elements.loginError.classList.add('visible');
-    setTimeout(() => {
-      this.elements.loginError.classList.remove('visible');
-    }, 5000);
-  },
+  updateUserInfo() {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const avatar = document.getElementById('user-avatar');
+    const name = document.getElementById('user-name');
+    const role = document.getElementById('user-role');
+    const settingsUser = document.getElementById('settings-user');
+    const settingsRoles = document.getElementById('settings-roles');
+    const settingsApiUrl = document.getElementById('settings-api-url');
 
-  // Navigation
-  showLogin() {
-    this.elements.loginScreen.classList.add('active');
-    this.elements.dashboardScreen.classList.remove('active');
-  },
-
-  showDashboard() {
-    this.elements.loginScreen.classList.remove('active');
-    this.elements.dashboardScreen.classList.add('active');
-
-    // Update settings
-    this.elements.settingsApiUrl.textContent = this.apiUrl;
-    if (this.user) {
-      this.elements.settingsUser.textContent = this.user.email;
-      this.elements.settingsRoles.textContent = this.user.roles?.join(', ') || 'user';
-
-      // Update sidebar user info
-      if (this.elements.userName) {
-        this.elements.userName.textContent = this.user.email;
-      }
-      if (this.elements.userAvatar) {
-        this.elements.userAvatar.textContent = this.user.email?.charAt(0).toUpperCase() || 'U';
-      }
-      if (this.elements.userRole) {
-        const role = this.user.roles?.find(r => r === 'admin') || this.user.roles?.[0] || 'User';
-        this.elements.userRole.textContent = role.charAt(0).toUpperCase() + role.slice(1);
-      }
-    }
-
-    // Show toast
-    this.toast('success', 'Welcome back!', `Logged in as ${this.user?.email}`);
+    if (avatar) avatar.textContent = (user.email || 'U').charAt(0).toUpperCase();
+    if (name) name.textContent = user.email || 'User';
+    if (role) role.textContent = (user.roles?.[0] || 'User').toUpperCase();
+    if (settingsUser) settingsUser.textContent = user.email || '-';
+    if (settingsRoles) settingsRoles.textContent = user.roles?.join(', ') || '-';
+    if (settingsApiUrl) settingsApiUrl.textContent = localStorage.getItem('apiUrl') || '-';
   },
 
   switchTab(tabName) {
-    // Update nav tabs
-    this.elements.navTabs.forEach(tab => {
-      tab.classList.toggle('active', tab.dataset.tab === tabName);
+    // Update nav items
+    document.querySelectorAll('.nav-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.tab === tabName);
     });
 
-    // Update tab contents
-    this.elements.tabContents.forEach(content => {
+    // Update tab content
+    document.querySelectorAll('.tab-content').forEach(content => {
       content.classList.toggle('active', content.id === `tab-${tabName}`);
     });
 
     // Update breadcrumb
-    const tabNames = {
-      tables: 'Tables',
-      vectors: 'Vector Search',
-      query: 'Query Builder',
-      settings: 'Settings',
-      help: 'Documentation'
-    };
-    if (this.elements.breadcrumbCurrent) {
-      this.elements.breadcrumbCurrent.textContent = tabNames[tabName] || tabName;
+    const breadcrumb = document.getElementById('breadcrumb-current');
+    if (breadcrumb) {
+      const names = { tables: 'Tables', settings: 'Settings', help: 'Documentation' };
+      breadcrumb.textContent = names[tabName] || tabName;
     }
 
-    // Load tab specific data
-    if (tabName === 'tables') {
-      this.loadTables();
-    } else if (tabName === 'vectors') {
-      this.loadCollections();
-    } else if (tabName === 'query') {
-      this.loadQueryTables();
-    }
+    // Load tab data
+    if (tabName === 'tables') this.loadTables();
   },
 
-  // Data Loading
-  async loadInitialData() {
-    await Promise.all([
-      this.loadTables(),
-      this.loadCollections()
-    ]);
+  toggleTheme() {
+    const html = document.documentElement;
+    const current = html.getAttribute('data-theme') || 'light';
+    const next = current === 'light' ? 'dark' : 'light';
+    html.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    this.updateThemeIcon(next);
+  },
+
+  updateThemeIcon(theme) {
+    const themeBtn = document.getElementById('btn-theme');
+    if (themeBtn) {
+      themeBtn.textContent = theme === 'light' ? '🌙' : '☀️';
+    }
   },
 
   async loadTables() {
-    const result = await this.apiCall('/admin/tables');
+    const token = localStorage.getItem('token');
+    const apiUrl = localStorage.getItem('apiUrl');
 
-    if (result.success) {
-      this.tables = result.data.tables || [];
-      this.renderTables();
-      this.updateQueryTables();
-    } else {
-      this.elements.tablesGrid.innerHTML = '<div class="empty-state">Error loading tables</div>';
-    }
-  },
+    if (!token || !apiUrl) return;
 
-  renderTables() {
-    // Update sidebar badge
-    if (this.elements.tableCount) {
-      this.elements.tableCount.textContent = this.tables.length;
-    }
+    const tablesGrid = document.getElementById('tables-grid');
+    const tableCount = document.getElementById('table-count');
+    if (!tablesGrid) return;
 
-    if (this.tables.length === 0) {
-      this.elements.tablesGrid.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon">📊</div>
-          <div class="empty-state-title">No tables yet</div>
-          <p class="empty-state-description">Create your first table to start storing data</p>
-          <button class="btn btn-primary" onclick="App.openModal('modal-create-table')">
-            + Create Table
-          </button>
-        </div>`;
-      return;
-    }
-
-    this.elements.tablesGrid.innerHTML = this.tables.map((table, index) => `
-      <div class="card card-hover" onclick="App.viewTable('${table}')">
-        <div class="card-header">
-          <div class="card-icon table-icon">📊</div>
-          <div class="card-info">
-            <div class="card-title">${table}</div>
-            <div class="card-description">Click to view and manage data</div>
-          </div>
-        </div>
-      </div>
-    `).join('');
-  },
-
-  updateQueryTables() {
-    const options = this.tables.map(t => `<option value="${t}">${t}</option>`).join('');
-    this.elements.queryTable.innerHTML = '<option value="">Select table...</option>' + options;
-  },
-
-  // Collections
-  async loadCollections() {
-    const result = await this.apiCall('/admin/vector/collections');
-
-    if (result.success) {
-      this.collections = result.data.collections || [];
-      this.renderCollections();
-      this.updateVectorCollections();
-    }
-  },
-
-  renderCollections() {
-    if (this.collections.length === 0) {
-      this.elements.collectionsList.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon">🧠</div>
-          <div class="empty-state-title">No collections</div>
-          <p class="empty-state-description">Vector collections will appear here once you start indexing</p>
-        </div>`;
-      return;
-    }
-
-    this.elements.collectionsList.innerHTML = this.collections.map(col => `
-      <div class="card card-hover">
-        <div class="card-header">
-          <div class="card-icon collection-icon">🧠</div>
-          <div class="card-info">
-            <div class="card-title">${col.name}</div>
-            <div class="card-description">${col.count} documents indexed</div>
-          </div>
-        </div>
-        <div class="card-footer">
-          <div class="card-stats">
-            <div class="card-stat">
-              <span>📝</span>
-              <span class="card-stat-value">${col.count}</span>
-              <span>docs</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    `).join('');
-  },
-
-  updateVectorCollections() {
-    const options = this.collections.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
-    this.elements.vectorCollection.innerHTML = '<option value="">All Collections</option>' + options;
-  },
-
-  // Vector Search
-  async vectorSearch() {
-    const query = this.elements.vectorQuery.value.trim();
-    if (!query) return;
-
-    const collection = this.elements.vectorCollection.value;
-    const limit = parseInt(this.elements.vectorLimit.value) || 10;
-    const type = this.elements.vectorType.value;
-
-    this.elements.vectorResults.innerHTML = '<div class="loading">Searching...</div>';
-
-    let result;
-    if (type === 'hybrid') {
-      result = await this.apiCall('/admin/vector/search-hybrid', {
-        method: 'POST',
-        body: {
-          ...(collection && { collection }),
-          query,
-          limit
-        }
-      });
-    } else {
-      // Use search-by-text endpoint
-      result = await this.apiCall('/admin/vector/search-by-text', {
-        method: 'POST',
-        body: {
-          ...(collection && { collection }),
-          query,
-          limit
-        }
-      });
-    }
-
-    if (result.success) {
-      this.renderVectorResults(result.data.results || []);
-    } else {
-      this.elements.vectorResults.innerHTML = '<div class="empty-state">Search failed</div>';
-    }
-  },
-
-  renderVectorResults(results) {
-    if (results.length === 0) {
-      this.elements.vectorResults.innerHTML = '<div class="empty-state">No results found</div>';
-      return;
-    }
-
-    this.elements.vectorResults.innerHTML = results.map(r => `
-      <div class="result-card">
-        <div class="result-header">
-          <strong>ID: ${r.id}</strong>
-          <span class="result-score">Score: ${(r.score * 100).toFixed(1)}%</span>
-        </div>
-        <div class="result-content">
-          ${r.metadata ? `<pre>${JSON.stringify(r.metadata, null, 2)}</pre>` : 'No metadata'}
-        </div>
-      </div>
-    `).join('');
-  },
-
-  // Query
-  async runQuery() {
-    const tableName = this.elements.queryTable.value;
-    if (!tableName) {
-      alert('Please select a table');
-      return;
-    }
-
-    const limit = parseInt(this.elements.queryLimit.value) || 100;
-    const filterText = this.elements.queryFilter.value.trim();
-    const sortField = this.elements.querySortField.value.trim();
-    const sortOrder = this.elements.querySortOrder.value;
-
-    let filter = {};
-    if (filterText) {
-      try {
-        filter = JSON.parse(filterText);
-      } catch (e) {
-        alert('Invalid JSON in filter');
-        return;
-      }
-    }
-
-    const body = { tableName, filter, limit };
-    if (sortField) {
-      body.sort = { [sortField]: sortOrder === 'asc' ? 1 : -1 };
-    }
-
-    this.elements.queryResults.innerHTML = '<div class="loading">Running query...</div>';
-
-    const result = await this.apiCall('/admin/query', {
-      method: 'POST',
-      body
-    });
-
-    if (result.success) {
-      this.renderQueryResults(result.data.data || []);
-    } else {
-      this.elements.queryResults.innerHTML = `<div class="empty-state">Query failed: ${result.data?.message || 'Unknown error'}</div>`;
-    }
-  },
-
-  renderQueryResults(data) {
-    if (data.length === 0) {
-      this.elements.queryResults.innerHTML = '<div class="empty-state">No results</div>';
-      return;
-    }
-
-    const columns = Object.keys(data[0]).filter(k => !k.startsWith('_'));
-
-    let html = `
-      <div class="table-container">
-        <table class="data-table">
-          <thead>
-            <tr>
-              ${columns.map(col => `<th>${col}</th>`).join('')}
-            </tr>
-          </thead>
-          <tbody>
-            ${data.map(row => `
-              <tr>
-                ${columns.map(col => `<td>${this.formatValue(row[col])}</td>`).join('')}
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-      <div style="margin-top: 1rem; color: var(--text-secondary);">
-        Showing ${data.length} results
-      </div>
+    // Mostrar skeleton loading
+    tablesGrid.innerHTML = `
+      <div class="card skeleton skeleton-card"></div>
+      <div class="card skeleton skeleton-card"></div>
+      <div class="card skeleton skeleton-card"></div>
     `;
 
-    this.elements.queryResults.innerHTML = html;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch(apiUrl + '/admin/tables', {
+        headers: { 'Authorization': 'Bearer ' + token },
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      const data = await response.json();
+
+      if (data.success && Array.isArray(data.tables)) {
+        const tables = data.tables;
+        if (tableCount) tableCount.textContent = tables.length;
+
+        if (tables.length === 0) {
+          tablesGrid.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-state-icon">📊</div>
+              <div class="empty-state-title">No tables yet</div>
+              <p class="empty-state-description">Create your first table to start storing data</p>
+              <button class="btn btn-primary" onclick="App.loadTables()" style="margin-top:1rem;">🔄 Reload</button>
+            </div>
+          `;
+        } else {
+          tablesGrid.innerHTML = tables.map(table => `
+            <div class="card card-hover" onclick="App.viewTable('${table}')" style="cursor:pointer;">
+              <div class="card-header">
+                <div class="card-icon table-icon">📊</div>
+                <div class="card-info">
+                  <div class="card-title">${this.escapeHtml(table)}</div>
+                  <div class="card-description">Click to view data</div>
+                </div>
+              </div>
+            </div>
+          `).join('');
+        }
+      } else {
+        throw new Error(data.message || 'Failed to load tables');
+      }
+    } catch (e) {
+      console.error('Error loading tables:', e);
+      tablesGrid.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">⚠️</div>
+          <div class="empty-state-title">Error loading tables</div>
+          <p class="empty-state-description">${e.name === 'AbortError' ? 'Connection timeout' : e.message}</p>
+          <button class="btn btn-primary" onclick="App.loadTables()" style="margin-top:1rem;">🔄 Retry</button>
+        </div>
+      `;
+    }
   },
 
-  formatValue(value) {
-    if (value === null || value === undefined) return '-';
-    if (typeof value === 'object') return JSON.stringify(value).substring(0, 100);
-    return String(value).substring(0, 100);
-  },
-
-  // Table View
-  async viewTable(tableName) {
+  viewTable(tableName) {
     this.currentTable = tableName;
-    document.getElementById('view-table-name').textContent = tableName;
-    this.openModal('modal-table-view');
-    await this.loadTableData(tableName);
+    const modal = document.getElementById('modal-table-view');
+    const title = document.getElementById('view-table-name');
+    if (title) title.textContent = `Table: ${tableName}`;
+    if (modal) modal.classList.add('visible');
+    this.loadTableData(tableName);
   },
 
   async loadTableData(tableName) {
     const container = document.getElementById('table-data-container');
+    if (!container) return;
+
     container.innerHTML = '<div class="loading">Loading data...</div>';
 
-    const result = await this.apiCall('/admin/query', {
-      method: 'POST',
-      body: { tableName, filter: {}, limit: 1000 }
-    });
+    const token = localStorage.getItem('token');
+    const apiUrl = localStorage.getItem('apiUrl');
 
-    if (result.success) {
-      this.tableData = result.data.data || [];
-      this.renderTableData();
-    } else {
-      container.innerHTML = '<div class="empty-state">Failed to load data</div>';
+    if (!token || !apiUrl) {
+      container.innerHTML = '<div class="empty-state">Not authenticated</div>';
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch(apiUrl + '/admin/query', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ tableName, filter: {}, limit: 100 }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      const data = await response.json();
+
+      if (data.success && Array.isArray(data.data)) {
+        this.tableData = data.data;
+        this.renderTableData();
+      } else {
+        throw new Error(data.message || 'No data');
+      }
+    } catch (e) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">⚠️</div>
+          <div class="empty-state-title">Error loading data</div>
+          <p class="empty-state-description">${e.message}</p>
+        </div>
+      `;
     }
   },
 
   renderTableData() {
     const container = document.getElementById('table-data-container');
-
-    if (this.tableData.length === 0) {
+    if (!container || this.tableData.length === 0) {
       container.innerHTML = '<div class="empty-state">No data in this table</div>';
       return;
     }
 
-    const columns = Object.keys(this.tableData[0]);
+    const columns = Object.keys(this.tableData[0]).filter(k => !k.startsWith('_'));
+    const rows = this.tableData.slice(0, 100); // Limitar a 100 rows para performance
 
     let html = `
       <div class="table-container">
         <table class="data-table">
           <thead>
             <tr>
-              ${columns.map(col => `<th>${col}</th>`).join('')}
-              <th>Actions</th>
+              ${columns.map(col => `<th>${this.escapeHtml(col)}</th>`).join('')}
             </tr>
           </thead>
           <tbody>
-            ${this.tableData.map((row, idx) => `
+            ${rows.map(row => `
               <tr>
-                ${columns.map(col => `<td>${this.formatValue(row[col])}</td>`).join('')}
-                <td>
-                  <button class="btn-secondary" onclick="App.editRow(${idx})">Edit</button>
-                  <button class="btn-remove" onclick="App.deleteRow('${row._id}')">Delete</button>
-                </td>
+                ${columns.map(col => `<td>${this.escapeHtml(String(row[col] ?? ''))}</td>`).join('')}
               </tr>
             `).join('')}
           </tbody>
         </table>
+        ${rows.length < this.tableData.length ? `<div style="padding:1rem;text-align:center;color:var(--text-secondary);">Showing ${rows.length} of ${this.tableData.length} rows</div>` : ''}
       </div>
     `;
 
     container.innerHTML = html;
   },
 
-  // Create Table
-  addColumn() {
-    const container = document.getElementById('columns-list');
-    const row = document.createElement('div');
-    row.className = 'column-row';
-    row.innerHTML = `
-      <input type="text" placeholder="Column name" class="col-name">
-      <select class="col-type">
-        <option value="text">text</option>
-        <option value="number">number</option>
-        <option value="select">select</option>
-        <option value="multiselect">multiselect</option>
-        <option value="checkbox">checkbox</option>
-        <option value="email">email</option>
-        <option value="url">url</option>
-      </select>
-      <button type="button" class="btn-remove" onclick="this.parentElement.remove()">×</button>
-    `;
-    container.appendChild(row);
-  },
-
-  async createTable() {
-    const tableName = document.getElementById('new-table-name').value.trim();
-    if (!tableName) {
-      alert('Please enter a table name');
-      return;
-    }
-
-    const columnRows = document.querySelectorAll('.column-row');
-    const columns = [];
-
-    columnRows.forEach(row => {
-      const name = row.querySelector('.col-name').value.trim();
-      const type = row.querySelector('.col-type').value;
-      if (name) {
-        columns.push({ name, type });
-      }
-    });
-
-    if (columns.length === 0) {
-      alert('Please add at least one column');
-      return;
-    }
-
-    const result = await this.apiCall('/admin/create-table', {
-      method: 'POST',
-      body: { tableName, columns }
-    });
-
-    if (result.success) {
-      this.closeModal('modal-create-table');
-      this.loadTables();
-      // Reset form
-      document.getElementById('new-table-name').value = '';
-      document.getElementById('columns-list').innerHTML = '';
-    } else {
-      alert('Failed to create table: ' + (result.data?.message || 'Unknown error'));
-    }
-  },
-
-  // Insert/Edit
-  showInsertModal() {
-    if (!this.currentTable) return;
-
-    document.getElementById('insert-title').textContent = `Insert into ${this.currentTable}`;
-    const form = document.getElementById('insert-form');
-    form.innerHTML = '';
-
-    // Get schema from first row or use defaults
-    const sampleRow = this.tableData[0] || {};
-    const fields = Object.keys(sampleRow).filter(k => !k.startsWith('_') && k !== 'created' && k !== 'updated');
-
-    fields.forEach(field => {
-      const group = document.createElement('div');
-      group.className = 'form-group';
-      group.innerHTML = `
-        <label>${field}</label>
-        <input type="text" name="${field}" placeholder="Enter ${field}">
-      `;
-      form.appendChild(group);
-    });
-
-    this.openModal('modal-insert');
-  },
-
-  async saveData() {
-    if (!this.currentTable) return;
-
-    const form = document.getElementById('insert-form');
-    const inputs = form.querySelectorAll('input');
-    const data = {};
-
-    inputs.forEach(input => {
-      if (input.value) {
-        data[input.name] = input.value;
-      }
-    });
-
-    const result = await this.apiCall('/admin/insert', {
-      method: 'POST',
-      body: { tableName: this.currentTable, data }
-    });
-
-    if (result.success) {
-      this.closeModal('modal-insert');
-      this.loadTableData(this.currentTable);
-    } else {
-      alert('Failed to insert: ' + (result.data?.message || 'Unknown error'));
-    }
-  },
-
-  editRow(index) {
-    const row = this.tableData[index];
-    // TODO: Implement edit functionality
-    alert('Edit functionality coming soon! Row ID: ' + row._id);
-  },
-
-  async deleteRow(id) {
-    if (!confirm('Are you sure you want to delete this record?')) return;
-
-    const result = await this.apiCall('/admin/remove', {
-      method: 'POST',
-      body: { tableName: this.currentTable, filter: { _id: id } }
-    });
-
-    if (result.success) {
-      this.loadTableData(this.currentTable);
-    } else {
-      alert('Failed to delete');
-    }
-  },
-
-  // Modal Management
-  openModal(modalId) {
-    document.getElementById(modalId).classList.add('visible');
-  },
-
   closeModal(modalId) {
-    document.getElementById(modalId).classList.remove('visible');
+    const modal = document.getElementById(modalId);
+    if (modal) modal.classList.remove('visible');
+  },
+
+  // Util: Escape HTML para prevenir XSS
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  },
+
+  // Toast notifications
+  toast(type, title, message) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+    const icon = icons[type] || 'ℹ️';
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+      <span class="toast-icon">${icon}</span>
+      <div class="toast-content">
+        <div class="toast-title">${this.escapeHtml(title)}</div>
+        <div class="toast-message">${this.escapeHtml(message)}</div>
+      </div>
+      <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+    `;
+
+    container.appendChild(toast);
+
+    // Auto-remove después de 5 segundos
+    setTimeout(() => {
+      toast.classList.add('hiding');
+      setTimeout(() => toast.remove(), 300);
+    }, 5000);
   }
 };
 
-// Quick Login Helper
+// Quick login helper
 function quickLogin() {
-  document.getElementById('email').value = 'admin@example.com';
-  document.getElementById('password').value = 'Admin123!';
+  const emailInput = document.getElementById('email');
+  const passwordInput = document.getElementById('password');
+  if (emailInput) emailInput.value = 'admin@example.com';
+  if (passwordInput) passwordInput.value = 'Admin123!';
   App.login();
 }
 
-// Initialize App when DOM is ready
+// Init on DOM ready
 document.addEventListener('DOMContentLoaded', () => App.init());
