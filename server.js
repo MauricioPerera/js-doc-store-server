@@ -2,9 +2,70 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const { DocStore, FileStorageAdapter, EncryptedAdapter, Table, Auth, FieldCrypto, createFromTemplate } = require('js-doc-store');
+const { VectorStore, QuantizedStore, BinaryQuantizedStore, PolarQuantizedStore, BM25Index, HybridSearch } = require('./js-vector-store.js');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+
+// Simple file storage adapter for js-vector-store (avoids ESM/CJS interop issues)
+class SimpleFileStorageAdapter {
+    constructor(dir) {
+        this.dir = dir;
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    }
+    readBin(filename) {
+        const file = path.join(this.dir, filename);
+        if (!fs.existsSync(file)) return null;
+        const buf = fs.readFileSync(file);
+        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    }
+    writeBin(filename, buffer) {
+        const file = path.join(this.dir, filename);
+        fs.writeFileSync(file, Buffer.from(buffer));
+    }
+    readJson(filename) {
+        const file = path.join(this.dir, filename);
+        if (!fs.existsSync(file)) return null;
+        return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    }
+    writeJson(filename, data) {
+        const file = path.join(this.dir, filename);
+        fs.writeFileSync(file, JSON.stringify(data));
+    }
+    delete(filename) {
+        const file = path.join(this.dir, filename);
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+    }
+    list() {
+        return fs.readdirSync(this.dir);
+    }
+    persist() {
+        return Promise.resolve();
+    }
+}
+
+// Custom vault encryption using Node crypto (FieldCrypto uses Web Crypto which is broken in Node 24)
+const cryptoNative = require('crypto');
+class VaultCrypto {
+    constructor(secret) {
+        this.key = cryptoNative.createHash('sha256').update(secret).digest();
+    }
+    async encrypt(plaintext) {
+        const iv = cryptoNative.randomBytes(16);
+        const cipher = cryptoNative.createCipheriv('aes-256-cbc', this.key, iv);
+        let encrypted = cipher.update(plaintext, 'utf8', 'hex');
+        encrypted += cipher.final('hex');
+        return iv.toString('hex') + ':' + encrypted;
+    }
+    async decrypt(ciphertext) {
+        const [ivHex, encrypted] = ciphertext.split(':');
+        const iv = Buffer.from(ivHex, 'hex');
+        const decipher = cryptoNative.createDecipheriv('aes-256-cbc', this.key, iv);
+        let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted;
+    }
+}
 
 const app = express();
 app.use(cors());
@@ -18,9 +79,11 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const VAULT_SECRET = process.env.VAULT_SECRET;
 const DB_ENCRYPTION_KEY = process.env.DB_ENCRYPTION_KEY;
 
-// Embedding worker configuration
+// Embedding configuration (supports Ollama local + external worker)
 const EMBEDDING_WORKER_URL = process.env.EMBEDDING_WORKER_URL;
 const EMBEDDING_API_KEY = process.env.EMBEDDING_API_KEY;
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+const OLLAMA_EMBEDDING_MODEL = process.env.OLLAMA_EMBEDDING_MODEL || 'embeddinggemma';
 const EMBEDDING_CONFIG = {
     defaultDimensions: 768,
     autoEmbedFields: ['content', 'text', 'description', 'body']
@@ -64,13 +127,30 @@ async function startServer() {
     const db = await initDb();
     const tableCache = new Map();
 
-    const auth = new Auth(db, { 
+    // --- VECTOR STORE INITIALIZATION ---
+    const VECTOR_DIR = process.env.VECTOR_DIR || path.join(DATA_DIR, 'vectors');
+    if (!fs.existsSync(VECTOR_DIR)) fs.mkdirSync(VECTOR_DIR, { recursive: true });
+    const vectorAdapter = new SimpleFileStorageAdapter(VECTOR_DIR);
+    const VECTOR_CONFIG = {
+        storeType: process.env.VECTOR_STORE_TYPE || 'float32',
+        dimensions: parseInt(process.env.VECTOR_DIMENSIONS || '768', 10)
+    };
+    let vectorStore;
+    switch (VECTOR_CONFIG.storeType) {
+        case 'int8': vectorStore = new QuantizedStore(vectorAdapter, VECTOR_CONFIG.dimensions); break;
+        case 'binary': vectorStore = new BinaryQuantizedStore(vectorAdapter, VECTOR_CONFIG.dimensions); break;
+        case 'polar': vectorStore = new PolarQuantizedStore(vectorAdapter, VECTOR_CONFIG.dimensions); break;
+        default: vectorStore = new VectorStore(vectorAdapter, VECTOR_CONFIG.dimensions);
+    }
+    const bm25Store = new BM25Index();
+
+    const auth = new Auth(db, {
         secret: JWT_SECRET,
-        passwordPolicy: { minLength: 6 } 
+        passwordPolicy: { minLength: 6 }
     });
     auth.init().catch(err => console.error("Auth Init Error:", err));
 
-    const vaultCrypto = new FieldCrypto(VAULT_SECRET);
+    const vaultCrypto = new VaultCrypto(VAULT_SECRET);
 
     function getTable(name) {
         if (tableCache.has(name)) return tableCache.get(name);
@@ -82,14 +162,44 @@ async function startServer() {
     // --- EMBEDDING HELPERS ---
 
     /**
-     * Generate embedding via Gemma embedding worker
+     * Generate embedding via Ollama (local) or external embedding worker
      */
     async function generateEmbedding(text, dimensions = null) {
-        if (!EMBEDDING_WORKER_URL || !EMBEDDING_API_KEY) {
-            throw new Error('Embedding worker not configured. Set EMBEDDING_WORKER_URL and EMBEDDING_API_KEY');
+        const targetDimensions = dimensions || EMBEDDING_CONFIG.defaultDimensions;
+
+        // Try Ollama first if no external worker is configured
+        if (!EMBEDDING_WORKER_URL) {
+            try {
+                const response = await axios({
+                    method: 'POST',
+                    url: `${OLLAMA_URL}/api/embeddings`,
+                    headers: { 'Content-Type': 'application/json' },
+                    data: {
+                        model: OLLAMA_EMBEDDING_MODEL,
+                        prompt: text
+                    }
+                });
+
+                const embedding = response.data?.embedding;
+                if (!embedding || !Array.isArray(embedding)) {
+                    throw new Error('Invalid embedding response from Ollama');
+                }
+
+                // Truncate to requested dimensions if needed
+                if (targetDimensions && embedding.length > targetDimensions) {
+                    return embedding.slice(0, targetDimensions);
+                }
+                return embedding;
+            } catch (e) {
+                if (!EMBEDDING_API_KEY) throw new Error(`Ollama embedding failed: ${e.message}. Set EMBEDDING_WORKER_URL or ensure Ollama is running.`);
+            }
         }
 
-        const targetDimensions = dimensions || EMBEDDING_CONFIG.defaultDimensions;
+        // Fallback to external embedding worker
+        if (!EMBEDDING_WORKER_URL || !EMBEDDING_API_KEY) {
+            throw new Error('Embedding not configured. Set OLLAMA_URL+OLLAMA_EMBEDDING_MODEL for local, or EMBEDDING_WORKER_URL+EMBEDDING_API_KEY for remote.');
+        }
+
         const endpoint = targetDimensions !== 2048 ? '/embed/matryoshka' : '/embed';
 
         const response = await axios({
@@ -179,6 +289,9 @@ async function startServer() {
     // Bootstrap endpoint - Create first admin when no users exist
     app.post('/auth/bootstrap', async (req, res) => {
         try {
+            // Ensure auth tables are initialized before checking users
+            await auth.init();
+
             // Check if users already exist
             const usersTable = new Table(db, 'users', { columns: [] });
             const existingUsers = usersTable.find({}).toArray();
@@ -200,6 +313,9 @@ async function startServer() {
 
             // Register the user
             const user = await auth.register(email, password, { name });
+            if (!user || !user._id) {
+                return res.status(500).json({ success: false, message: 'Registration failed unexpectedly' });
+            }
 
             // Assign admin role
             await auth.assignRole(user._id, 'admin');
@@ -222,15 +338,16 @@ async function startServer() {
     app.post('/auth/register', async (req, res) => {
         const { email, password, name } = req.body;
         try {
-            const user = await auth.register(email, password, { name });
+            let user = await auth.register(email, password, { name });
 
             // Auto-assign admin role to the first user
-            const usersTable = new Table(db, 'users', { columns: [] });
-            const userCount = usersTable.find({}).toArray().length;
+            const userCount = auth._users.find({}).toArray().length;
             if (userCount === 1) {
                 await auth.assignRole(user._id, 'admin');
+                user = auth.getUser(user._id);
             }
 
+            db.flush();
             res.json({ success: true, user });
         } catch (e) { res.status(400).json({ success: false, message: e.message }); }
     });
@@ -245,12 +362,19 @@ async function startServer() {
 
     // --- VAULT SYSTEM ---
     app.post('/admin/vault/add', authenticateJWT, authorize('admin'), async (req, res) => {
-        const { secretId, secretValue, label } = req.body;
-        const vault = getTable('vault');
-        const encryptedValue = await vaultCrypto.encrypt(secretValue);
-        vault.insert({ _id: secretId, label, value: encryptedValue, createdAt: new Date().toISOString() });
-        db.flush();
-        res.json({ success: true, message: "Secret stored securely." });
+        try {
+            const { secretId, secretValue, label } = req.body;
+            if (!secretId || secretValue === undefined) {
+                return res.status(400).json({ success: false, message: 'secretId and secretValue are required' });
+            }
+            const vault = getTable('vault');
+            const encryptedValue = await vaultCrypto.encrypt(secretValue);
+            vault.insert({ _id: secretId, label, value: encryptedValue, createdAt: new Date().toISOString() });
+            db.flush();
+            res.json({ success: true, message: "Secret stored securely." });
+        } catch (e) {
+            res.status(500).json({ success: false, message: e.message });
+        }
     });
 
     app.get('/admin/vault/list', authenticateJWT, authorize('admin'), (req, res) => {
@@ -260,6 +384,17 @@ async function startServer() {
         res.json({ success: true, secrets: sanitized });
     });
 
+    app.post('/admin/vault/get', authenticateJWT, authorize('admin'), async (req, res) => {
+        try {
+            const { secretId } = req.body;
+            const vault = getTable('vault');
+            const secretDoc = vault.findById(secretId);
+            if (!secretDoc) return res.status(404).json({ success: false, message: "Secret not found" });
+            const decryptedValue = await vaultCrypto.decrypt(secretDoc.value);
+            res.json({ success: true, secretId, label: secretDoc.label, value: decryptedValue });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
+
     app.post('/admin/vault/execute', authenticateJWT, authorize('admin'), async (req, res) => {
         const { secretId, url, method = 'GET', body: reqBody = {}, headerType = 'bearer' } = req.body;
         const vault = getTable('vault');
@@ -267,130 +402,240 @@ async function startServer() {
         if (!secretDoc) return res.status(404).json({ success: false, message: "Secret not found" });
         try {
             const decryptedValue = await vaultCrypto.decrypt(secretDoc.value);
-
-            // Build headers based on headerType parameter
-            // headerType options: 'bearer', 'api-key', 'x-api-key', 'basic', 'custom'
             let headers = {};
             switch (headerType) {
-                case 'bearer':
-                    headers = { 'Authorization': `Bearer ${decryptedValue}` };
-                    break;
-                case 'api-key':
-                    headers = { 'X-Api-Key': decryptedValue };
-                    break;
-                case 'x-api-key':
-                    headers = { 'X-API-KEY': decryptedValue };
-                    break;
-                case 'basic':
-                    headers = { 'Authorization': `Basic ${Buffer.from(decryptedValue).toString('base64')}` };
-                    break;
-                case 'custom':
-                    // For custom, expect headerName and headerValueFormat
-                    // e.g., headerName: 'Api-Key', headerValueFormat: 'prefix-{value}'
+                case 'bearer': headers = { 'Authorization': `Bearer ${decryptedValue}` }; break;
+                case 'api-key': headers = { 'X-Api-Key': decryptedValue }; break;
+                case 'x-api-key': headers = { 'X-API-KEY': decryptedValue }; break;
+                case 'basic': headers = { 'Authorization': `Basic ${Buffer.from(decryptedValue).toString('base64')}` }; break;
+                case 'custom': {
                     const customHeaderName = req.body.headerName || 'Authorization';
                     const valueFormat = req.body.headerValueFormat || '{value}';
-                    headers[customHeaderName] = valueFormat.replace('{value}', decryptedValue);
-                    break;
-                default:
-                    headers = { 'Authorization': `Bearer ${decryptedValue}` };
+                    headers[customHeaderName] = valueFormat.replace('{value}', decryptedValue); break;
+                }
+                default: headers = { 'Authorization': `Bearer ${decryptedValue}` };
             }
-
             const response = await axios({ method, url, data: reqBody, headers });
             res.json({ success: true, data: response.data, status: response.status });
         } catch (e) { res.status(500).json({ success: false, message: e.message }); }
     });
 
-    // --- EMBEDDING INTEGRATION ENDPOINTS ---
+    // --- CONNECTION METADATA SYSTEM ---
+    app.post('/admin/connections/register', authenticateJWT, authorize('admin'), (req, res) => {
+        try {
+            const { name, host, port = 22, username, vaultSecretId, label } = req.body;
+            if (!name || !host || !username || !vaultSecretId) {
+                return res.status(400).json({ success: false, message: 'name, host, username, and vaultSecretId are required' });
+            }
+            const connections = getTable('connections');
+            const existing = connections.findById(name);
+            if (existing) {
+                connections.update(name, { host, port, username, vaultSecretId, label, updatedAt: new Date().toISOString() });
+            } else {
+                connections.insert({ _id: name, name, host, port, username, vaultSecretId, label, createdAt: new Date().toISOString() });
+            }
+            db.flush();
+            res.json({ success: true, message: 'Connection registered' });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
 
-    // POST /admin/embed - Generate embedding for text
+    app.post('/admin/connections/list', authenticateJWT, authorize('admin'), (req, res) => {
+        try {
+            const connections = getTable('connections');
+            const all = connections.find({}).toArray();
+            const sanitized = all.map(c => {
+                const { value, ...rest } = c;
+                return rest;
+            });
+            res.json({ success: true, connections: sanitized });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
+
+    // --- EMBEDDING & VECTOR ENDPOINTS ---
+
+    function bm25Path(collection) { return path.join(VECTOR_DIR, `${collection}.bm25.json`); }
+    function loadBM25(collection) {
+        try { const state = JSON.parse(fs.readFileSync(bm25Path(collection), 'utf-8')); bm25Store.importState(collection, state); } catch {}
+    }
+    function saveBM25(collection) {
+        const state = bm25Store.exportState(collection);
+        if (state) fs.writeFileSync(bm25Path(collection), JSON.stringify(state));
+    }
+
     app.post('/admin/embed', authenticateJWT, authorize('admin'), async (req, res) => {
         try {
             const { text, dimensions } = req.body;
-
-            if (!text) {
-                return res.status(400).json({ success: false, message: 'text is required' });
-            }
-
+            if (!text) return res.status(400).json({ success: false, message: 'text is required' });
             const embedding = await generateEmbedding(text, dimensions);
-
-            res.json({
-                success: true,
-                model: '@cf/google/embeddinggemma-300m',
-                dimensions: embedding.length,
-                embedding
-            });
-        } catch (e) {
-            res.status(500).json({ success: false, message: e.message });
-        }
+            res.json({ success: true, model: OLLAMA_EMBEDDING_MODEL, dimensions: embedding.length, embedding });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
     });
 
-    // POST /admin/vector/index-with-text - Index document with auto-generated embedding
+    app.post('/admin/vector/index', authenticateJWT, authorize('admin'), async (req, res) => {
+        try {
+            const { collection = 'default', id, vector, metadata = {} } = req.body;
+            if (!id) return res.status(400).json({ success: false, message: 'id is required' });
+            if (!vector || !Array.isArray(vector)) return res.status(400).json({ success: false, message: 'vector is required (array of floats)' });
+            vectorStore.set(collection, id, vector, metadata);
+            vectorStore.flush();
+            await vectorAdapter.persist();
+            res.json({ success: true, message: `Document indexed in collection ${collection}`, id, embeddingDimensions: vector.length });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
+
+    app.post('/admin/vector/batch', authenticateJWT, authorize('admin'), async (req, res) => {
+        try {
+            const { collection = 'default', vectors } = req.body;
+            if (!Array.isArray(vectors)) return res.status(400).json({ success: false, message: 'vectors array is required' });
+            let count = 0;
+            for (const item of vectors) {
+                if (item.id && item.vector) {
+                    vectorStore.set(collection, item.id, item.vector, item.metadata || {});
+                    count++;
+                }
+            }
+            vectorStore.flush();
+            await vectorAdapter.persist();
+            res.json({ success: true, message: `${count} documents indexed in collection ${collection}`, count });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
+
     app.post('/admin/vector/index-with-text', authenticateJWT, authorize('admin'), async (req, res) => {
         try {
             const { collection = 'default', id, text, doc, metadata = {}, dimensions } = req.body;
-
-            if (!id) {
-                return res.status(400).json({ success: false, message: 'id is required' });
-            }
-
-            // Get text to embed
+            if (!id) return res.status(400).json({ success: false, message: 'id is required' });
             let textToEmbed = text;
-            if (!textToEmbed && doc) {
-                textToEmbed = extractTextForEmbedding(doc);
-            }
-
-            if (!textToEmbed) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Provide "text" or "doc" with embeddable fields'
-                });
-            }
-
-            // Generate embedding
+            if (!textToEmbed && doc) textToEmbed = extractTextForEmbedding(doc);
+            if (!textToEmbed) return res.status(400).json({ success: false, message: 'Provide "text" or "doc" with embeddable fields' });
             const embedding = await generateEmbedding(textToEmbed, dimensions);
-
-            // Index in vector store (using js-vector-store)
-            // Note: For Express server, this requires js-vector-store integration
-            // For now, return the embedding for manual storage
-            res.json({
-                success: true,
-                message: `Document ready for indexing in collection ${collection}`,
-                id,
-                textLength: textToEmbed.length,
-                embeddingDimensions: embedding.length,
-                embedding,
-                metadata: { ...metadata, text: textToEmbed.substring(0, 500) }
-            });
-
-        } catch (e) {
-            res.status(500).json({ success: false, message: e.message });
-        }
+            vectorStore.set(collection, id, embedding, { ...metadata, text: textToEmbed.substring(0, 500) });
+            vectorStore.flush();
+            await vectorAdapter.persist();
+            res.json({ success: true, message: `Document indexed in collection ${collection}`, id, textLength: textToEmbed.length, embeddingDimensions: embedding.length });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
     });
 
-    // POST /admin/vector/search-by-text - Search vectors using text query
+    app.post('/admin/vector/search', authenticateJWT, authorize('admin'), async (req, res) => {
+        try {
+            const { collection = 'default', vector, limit = 10, metric = 'cosine', matryoshka, dimSlice } = req.body;
+            if (!vector || !Array.isArray(vector)) return res.status(400).json({ success: false, message: 'vector is required (array of floats)' });
+            let results;
+            if (matryoshka && Array.isArray(matryoshka)) {
+                results = vectorStore.matryoshkaSearch(collection, vector, limit, matryoshka, metric);
+            } else {
+                results = vectorStore.search(collection, vector, limit, dimSlice || 0, metric);
+            }
+            res.json({ success: true, collection, results });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
+
     app.post('/admin/vector/search-by-text', authenticateJWT, authorize('admin'), async (req, res) => {
         try {
             const { collection = 'default', query, limit = 10, metric = 'cosine', dimensions } = req.body;
-
-            if (!query) {
-                return res.status(400).json({ success: false, message: 'query text is required' });
-            }
-
-            // Generate embedding for query
+            if (!query) return res.status(400).json({ success: false, message: 'query text is required' });
             const queryEmbedding = await generateEmbedding(query, dimensions);
+            const results = vectorStore.search(collection, queryEmbedding, limit, 0, metric);
+            res.json({ success: true, query, collection, results });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
 
-            res.json({
-                success: true,
-                query,
-                collection,
-                message: 'Query embedding generated. Use this with your vector store.',
-                embeddingDimensions: queryEmbedding.length,
-                queryEmbedding
-            });
+    app.post('/admin/vector/search-hybrid', authenticateJWT, authorize('admin'), async (req, res) => {
+        try {
+            const { collection = 'default', vector, text, limit = 10, metric = 'cosine', mode = 'rrf', weights = [0.7, 0.3] } = req.body;
+            if (!vector || !Array.isArray(vector)) return res.status(400).json({ success: false, message: 'vector is required' });
+            if (!text) return res.status(400).json({ success: false, message: 'text is required' });
+            loadBM25(collection);
+            const hybrid = new HybridSearch(vectorStore, bm25Store, mode);
+            const results = hybrid.search(collection, vector, text, limit, weights);
+            res.json({ success: true, collection, mode, results });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
 
-        } catch (e) {
-            res.status(500).json({ success: false, message: e.message });
-        }
+    app.post('/admin/vector/search-cross', authenticateJWT, authorize('admin'), async (req, res) => {
+        try {
+            const { collections, vector, limit = 10, metric = 'cosine' } = req.body;
+            if (!Array.isArray(collections)) return res.status(400).json({ success: false, message: 'collections array is required' });
+            if (!vector || !Array.isArray(vector)) return res.status(400).json({ success: false, message: 'vector is required' });
+            const results = vectorStore.searchAcross(collections, vector, limit, metric);
+            res.json({ success: true, collections, results });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
+
+    app.get('/admin/vector/collections', authenticateJWT, authorize('admin'), (req, res) => {
+        try {
+            const result = [];
+            const files = vectorAdapter.list();
+            const seen = new Set();
+            for (const f of files) {
+                const name = f.replace(/\.(bin|json|q8\.(bin|json)|b1\.(bin|json)|p1\.(bin|json))$/, '');
+                if (!name || seen.has(name)) continue;
+                seen.add(name);
+                result.push({ name, count: vectorStore.count(name) });
+            }
+            res.json({ success: true, collections: result });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
+
+    app.get('/admin/vector/stats', authenticateJWT, authorize('admin'), (req, res) => {
+        try {
+            const stats = { storeType: VECTOR_CONFIG.storeType, dimensions: VECTOR_CONFIG.dimensions };
+            const files = vectorAdapter.list ? vectorAdapter.list() : [];
+            const seen = new Set();
+            for (const f of files) {
+                const name = f.replace(/\.(bin|json|q8\.(bin|json)|b1\.(bin|json)|p1\.(bin|json))$/, '');
+                if (!name || seen.has(name)) continue;
+                seen.add(name);
+                stats[name] = { count: vectorStore.count(name) };
+            }
+            res.json({ success: true, stats });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
+
+    app.delete('/admin/vector/:collection/:id', authenticateJWT, authorize('admin'), (req, res) => {
+        try {
+            const { collection, id } = req.params;
+            const removed = vectorStore.remove(collection, id);
+            vectorStore.flush();
+            vectorAdapter.persist().catch(() => {});
+            res.json({ success: true, removed });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
+
+    app.post('/admin/vector/drop', authenticateJWT, authorize('admin'), (req, res) => {
+        try {
+            const { collection } = req.body;
+            if (!collection) return res.status(400).json({ success: false, message: 'collection is required' });
+            vectorStore.drop(collection);
+            try { fs.unlinkSync(bm25Path(collection)); } catch {}
+            res.json({ success: true, message: `Collection ${collection} dropped` });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
+
+    app.get('/admin/vector/:collection/:id', authenticateJWT, authorize('admin'), (req, res) => {
+        try {
+            const { collection, id } = req.params;
+            const result = vectorStore.get(collection, id);
+            if (!result) return res.status(404).json({ success: false, message: 'Not found' });
+            res.json({ success: true, result });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    });
+
+    app.post('/admin/vector/batch-index-with-text', authenticateJWT, authorize('admin'), async (req, res) => {
+        try {
+            const { collection = 'default', documents } = req.body;
+            if (!Array.isArray(documents)) return res.status(400).json({ success: false, message: 'documents array is required' });
+            let count = 0;
+            for (const doc of documents) {
+                const { id, text } = doc;
+                if (!id || !text) continue;
+                const embedding = await generateEmbedding(text, doc.dimensions);
+                vectorStore.set(collection, id, embedding, { ...doc.metadata, text: text.substring(0, 500) });
+                count++;
+            }
+            vectorStore.flush();
+            await vectorAdapter.persist();
+            res.json({ success: true, message: `${count} documents indexed`, count });
+        } catch (e) { res.status(500).json({ success: false, message: e.message }); }
     });
 
     // --- CORE DATA OPERATIONS ---
@@ -452,6 +697,14 @@ async function startServer() {
         table.updateMany(filter, update);
         db.flush();
         res.json({ success: true });
+    });
+
+    app.post('/admin/remove', authenticateJWT, authorize('admin'), (req, res) => {
+        const { tableName, filter } = req.body;
+        const table = getTable(tableName);
+        const count = table.remove(filter);
+        db.flush();
+        res.json({ success: true, count });
     });
 
     app.post('/admin/aggregate', authenticateJWT, authorize('admin'), (req, res) => {
