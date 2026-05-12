@@ -2,16 +2,23 @@ const axios = require('axios');
 
 const BASE_URL = process.env.API_URL || 'https://YOUR_WORKER_SUBDOMAIN.workers.dev';
 const EMBEDDING_URL = process.env.EMBEDDING_URL || 'https://gemma-embedding-worker.YOUR_SUBDOMAIN.workers.dev';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // MUST be set via env
 
 async function test() {
+    if (!ADMIN_PASSWORD) {
+        console.error('❌ ADMIN_PASSWORD environment variable is required');
+        console.error('   Example: ADMIN_PASSWORD=your_password node test_direct_integration.js');
+        process.exit(1);
+    }
     console.log('Testing direct embedding integration...\n');
     
     try {
         // Test 1: Login
         console.log('1. Login...');
         const loginRes = await axios.post(`${BASE_URL}/auth/login`, {
-            email: 'admin@example.com',
-            password: 'Admin123!'
+            email: ADMIN_EMAIL,
+            password: ADMIN_PASSWORD
         });
         const token = loginRes.data.token;
         console.log('✅ Login successful\n');
@@ -22,7 +29,7 @@ async function test() {
             text: 'Hello world',
             dimensions: 768
         }, {
-            headers: { Authorization: 'Bearer your-secret-api-key-here' }
+            headers: { Authorization: `Bearer ${process.env.EMBEDDING_API_KEY || 'your-embedding-api-key'}` }
         });
         console.log('✅ Direct call successful');
         console.log('   Dimensions:', directRes.data.dimensions);

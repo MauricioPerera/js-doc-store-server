@@ -2,7 +2,13 @@ const axios = require('axios');
 
 const BASE_URL = process.env.API_URL || 'https://YOUR_WORKER_SUBDOMAIN.workers.dev';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin123!';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // MUST be set via env
+
+if (!ADMIN_PASSWORD) {
+    console.error('❌ ADMIN_PASSWORD environment variable is required');
+    console.error('   Example: ADMIN_PASSWORD=your_password node test_public_endpoints.js');
+    process.exit(1);
+}
 
 async function testPublicEndpoints() {
     console.log('══════════════════════════════════════════════════');

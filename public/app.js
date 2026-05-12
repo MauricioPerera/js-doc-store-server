@@ -434,13 +434,18 @@ const App = {
   }
 };
 
-// Quick login helper
+// Quick login helper — USES ENV CREDENTIALS (never hardcoded)
+// IMPORTANT: In production, configure a .env file with real credentials
 function quickLogin() {
   const emailInput = document.getElementById('email');
   const passwordInput = document.getElementById('password');
-  if (emailInput) emailInput.value = 'admin@example.com';
-  if (passwordInput) passwordInput.value = 'Admin123!';
-  App.login();
+  if (emailInput) emailInput.value = emailInput.value || '';
+  if (passwordInput) passwordInput.value = passwordInput.value || '';
+  if (emailInput && passwordInput && emailInput.value && passwordInput.value) {
+    App.login();
+  } else {
+    alert('Por favor ingrese email y contraseña, o configure un .env con ADMIN_EMAIL y ADMIN_PASSWORD.');
+  }
 }
 
 // Init on DOM ready
