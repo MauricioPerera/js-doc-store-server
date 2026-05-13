@@ -1,0 +1,4 @@
+# Override parent's test-*.js / *-test.js exclusion — agent-os ships its
+# own test runners alongside the library code.
+!test-agent-os.js
+!test-e2e.js

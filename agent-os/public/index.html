@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent OS | Intelligence Panel</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>Agent OS</h2>
+                <button id="btn-new-session" title="New Session">+</button>
+            </div>
+            
+            <div class="section-label">SESSIONS</div>
+            <div id="session-list" class="list-container">
+                <!-- Sessions will be injected here -->
+                <div class="empty-state">No sessions loaded</div>
+            </div>
+
+            <div class="section-label">ACTIVE SKILLS</div>
+            <div id="skills-list" class="list-container">
+                <!-- Skills will be injected here -->
+            </div>
+        </aside>
+
+        <main class="chat-area">
+            <div id="chat-window" class="chat-window">
+                <div class="welcome-msg">
+                    <h1>Welcome to Agent OS</h1>
+                    <p>Your DocStore is now augmented with a programmatic agent. Start chatting to manage your data, create architectures, or import skills.</p>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <div id="agent-status" class="status-indicator">Idle</div>
+                <div class="input-wrapper">
+                    <textarea id="user-input" placeholder="Ask the agent to build something..." rows="1"></textarea>
+                    <button id="btn-send">Send</button>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="agent-ui.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "agent-os",
+  "version": "1.0.0",
+  "description": "Intelligence layer for js-doc-store-server. Embeds a pi-coding-agent runtime with DocStore-backed tools, served over socket.io.",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "test": "node test-agent-os.js",
+    "test:e2e": "node test-e2e.js",
+    "start": "node main.js"
+  },
+  "keywords": ["agent", "ollama", "docstore", "socket.io"],
+  "license": "ISC",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "socket.io": "^4.8.3",
+    "typebox": "^1.1.38"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}

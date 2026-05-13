@@ -2,13 +2,16 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
-const result = dotenv.config({ path: path.resolve(__dirname, '.env') });
-if (result.error) {
-  console.error('Dotenv error:', result.error);
-  process.exit(1);
+const fsBoot = require('fs');
+const envPath = path.resolve(__dirname, '.env');
+if (fsBoot.existsSync(envPath)) {
+    const result = dotenv.config({ path: envPath });
+    if (result.error) {
+        console.error('Dotenv error:', result.error);
+        process.exit(1);
+    }
 }
-console.log('Dotenv result:', result.parsed);
-const { DocStore, FileStorageAdapter, EncryptedAdapter, Table, Auth, FieldCrypto, createFromTemplate } = require('js-doc-store');
+const { DocStore, FileStorageAdapter, EncryptedAdapter, Table, Auth, FieldCrypto, createFromTemplate } = require('./js-doc-store.js');
 const { VectorStore, QuantizedStore, BinaryQuantizedStore, PolarQuantizedStore, BM25Index, HybridSearch } = require('./js-vector-store.js');
 const fs = require('fs');
 const axios = require('axios');
@@ -95,22 +98,22 @@ const EMBEDDING_CONFIG = {
     autoEmbedFields: ['content', 'text', 'description', 'body']
 };
 
-// Validate critical environment variables
-if (!JWT_SECRET) {
-  console.error('ERROR: JWT_SECRET environment variable is required');
-  process.exit(1);
-}
-if (!VAULT_SECRET) {
-  console.error('ERROR: VAULT_SECRET environment variable is required');
-  process.exit(1);
-}
-if (!DB_ENCRYPTION_KEY) {
-  console.error('ERROR: DB_ENCRYPTION_KEY environment variable is required');
-  process.exit(1);
-}
-
-if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+function validateEnvOrExit() {
+    if (!JWT_SECRET) {
+        console.error('ERROR: JWT_SECRET environment variable is required');
+        process.exit(1);
+    }
+    if (!VAULT_SECRET) {
+        console.error('ERROR: VAULT_SECRET environment variable is required');
+        process.exit(1);
+    }
+    if (!DB_ENCRYPTION_KEY) {
+        console.error('ERROR: DB_ENCRYPTION_KEY environment variable is required');
+        process.exit(1);
+    }
+    if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
 }
 
 // --- DB INITIALIZATION WITH FULL ENCRYPTION ---
@@ -135,7 +138,9 @@ async function initDb() {
 }
 
 // Since initDb is async, we wrap the server start
-async function startServer() {
+async function startServer(options = {}) {
+    const { listen = true } = options;
+    validateEnvOrExit();
     const { db, dbAdapter } = await initDb();
     const tableCache = new Map();
 
@@ -755,11 +760,20 @@ async function startServer() {
         } catch (e) { res.status(400).json({ success: false, message: e.message }); }
     });
 
-    app.listen(PORT, () => {
-        console.log(`🚀 DocStore Server running on http://localhost:${PORT}`);
-        console.log(`🔐 Security: JWT + RBAC + Full-Disk Encryption Enabled`);
-        console.log(`📁 Data directory: ${DATA_DIR}`);
-    });
+    let httpServer = null;
+    if (listen) {
+        httpServer = app.listen(PORT, () => {
+            console.log(`🚀 DocStore Server running on http://localhost:${PORT}`);
+            console.log(`🔐 Security: JWT + RBAC + Full-Disk Encryption Enabled`);
+            console.log(`📁 Data directory: ${DATA_DIR}`);
+        });
+    }
+
+    return { app, db, dbAdapter, vaultCrypto, auth, getTable, PORT, httpServer };
 }
 
-startServer();
+module.exports = { startServer, VaultCrypto };
+
+if (require.main === module) {
+    startServer();
+}
