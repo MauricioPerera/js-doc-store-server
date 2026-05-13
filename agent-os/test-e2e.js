@@ -35,6 +35,12 @@ socket.on("agent:session:updated", ({ sessionId }) => {
 });
 
 socket.on("agent:event", (event) => {
+    if (process.env.E2E_VERBOSE) {
+        const inner = event.assistantMessageEvent?.type
+            ? ` / ${event.assistantMessageEvent.type}`
+            : "";
+        console.log(`[e2e] event: ${event.type}${inner}`);
+    }
     if (
         event.type === "message_update" &&
         event.assistantMessageEvent?.type === "text_delta"
@@ -42,9 +48,9 @@ socket.on("agent:event", (event) => {
         process.stdout.write(event.assistantMessageEvent.delta);
         collected += event.assistantMessageEvent.delta;
     } else if (event.type === "tool_execution_start") {
-        console.log(`\n[e2e] tool_start: ${event.toolName}`);
+        console.log(`\n[e2e] tool_start: ${event.toolName} args=${JSON.stringify(event.args)}`);
     } else if (event.type === "tool_execution_end") {
-        console.log(`[e2e] tool_end: ${event.toolName} error=${event.isError}`);
+        console.log(`[e2e] tool_end: ${event.toolName} error=${event.isError} result=${JSON.stringify(event.result).slice(0, 200)}`);
     } else if (event.type === "agent_end") {
         clearTimeout(timer);
         finish("agent_end");

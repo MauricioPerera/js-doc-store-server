@@ -23,9 +23,14 @@ class AgentRuntimeManager {
             contextWindow: options.ollama?.contextWindow || 32768,
             maxTokens: options.ollama?.maxTokens || 8192,
         };
+        this.customTools = options.customTools || [];
         this.runtime = null;
         this.currentSession = null;
         this.model = null;
+    }
+
+    setCustomTools(tools) {
+        this.customTools = tools || [];
     }
 
     registerOllamaProvider() {
@@ -46,6 +51,9 @@ class AgentRuntimeManager {
                     maxTokens: this.ollama.maxTokens,
                     input: ["text"],
                     reasoning: false,
+                    // pi-ai's calculateCost reads model.cost.{input,output,cacheRead,cacheWrite};
+                    // Ollama is local/free so zeros are correct, but the keys must exist.
+                    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
                 },
             ],
         });
@@ -75,6 +83,7 @@ class AgentRuntimeManager {
                 sessionManager,
                 resourceLoader: this.loader,
                 model: this.model,
+                customTools: this.customTools,
             });
             return { session };
         };
