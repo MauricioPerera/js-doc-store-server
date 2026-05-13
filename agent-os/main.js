@@ -44,12 +44,16 @@ async function bootAgentOS() {
     console.log("🚀 Booting Agent OS Layer...");
 
     const ctx = await startServer({ listen: false });
-    const { app, db, vaultCrypto, PORT } = ctx;
+    const { app, db, vaultCrypto, auth, PORT } = ctx;
 
-    const vaultBridge = new VaultBridge(vaultCrypto);
+    const agentDir = path.join(__dirname, ".pi/agent");
+    const vaultBridge = new VaultBridge(vaultCrypto, {
+        authPath: path.join(agentDir, "auth.json"),
+    });
 
     const runtimeManager = new AgentRuntimeManager({
         cwd: path.join(__dirname, ".."),
+        agentDir,
         authStorage: vaultBridge.getAuthStorage(),
         ollama: {
             baseUrl: process.env.AGENT_OLLAMA_BASE_URL || "http://localhost:11434/v1",
@@ -70,7 +74,10 @@ async function bootAgentOS() {
     console.log(`[AgentOS] active tools: ${session.getActiveToolNames().join(", ")}`);
 
     const httpServer = http.createServer(app);
-    new SocketHandler(httpServer, runtimeManager);
+    new SocketHandler(httpServer, runtimeManager, {
+        auth,
+        disableAuth: process.env.AGENT_OS_DISABLE_AUTH === "1",
+    });
 
     app.use("/agent-ui", express.static(path.join(__dirname, "public")));
 

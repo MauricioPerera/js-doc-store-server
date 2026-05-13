@@ -1,14 +1,23 @@
 import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import fs from "fs";
+import path from "path";
 
 /**
  * VaultBridge connects the Agent's AuthStorage to the Server's encrypted Vault.
- * This prevents the agent from needing a plain-text auth.json and allows it
- * to use the server's secure credential management.
+ *
+ * When constructed with `{ authPath }`, the SDK's AuthStorage persists keys to
+ * that file across restarts (note: this file is plaintext JSON — keep the
+ * .pi/agent directory out of git and off shared volumes). When `authPath` is
+ * omitted the storage is in-memory only and keys vanish on process exit.
  */
 class VaultBridge {
-    constructor(serverVault) {
-        this.serverVault = serverVault; // Instance of VaultCrypto from server.js
-        this.authStorage = AuthStorage.create(); 
+    constructor(serverVault, { authPath } = {}) {
+        this.serverVault = serverVault;
+        this.authPath = authPath || null;
+        if (this.authPath) {
+            fs.mkdirSync(path.dirname(this.authPath), { recursive: true });
+        }
+        this.authStorage = this.authPath ? AuthStorage.create(this.authPath) : AuthStorage.create();
     }
 
     /**

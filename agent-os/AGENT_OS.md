@@ -92,6 +92,20 @@ The factory exposes full CRUD over both schema and data.
 
 The schema persists to `{tableName}.schema.json` automatically when columns change. The factory rebuilds `Table` instances from disk on first access so columns survive restarts (DocStore's `Table` constructor only loads `autoNum`/`views`, not columns).
 
+## Authentication
+
+The WebSocket requires a JWT with the `admin` role. Every connection must include the token in the socket.io handshake:
+
+```js
+const socket = io({ auth: { token } });
+```
+
+The token is obtained from the host server's `POST /auth/login`, which already exists in `server.js`. On a clean install, call `POST /auth/bootstrap` once with the credentials from `.env` (`ADMIN_EMAIL`/`ADMIN_PASSWORD`) — this creates the first admin user and persists it via `dbAdapter.persist()` (the auto-persist interval used to leave a window where the user only existed in RAM and disappeared on the next restart). The UI handles all of this automatically: it shows a login overlay on first visit, stores the token in `localStorage`, and re-prompts when the server rejects the connection.
+
+To bypass auth for local development, set `AGENT_OS_DISABLE_AUTH=1`. The server logs a loud warning on boot when auth is disabled — never deploy that way.
+
+`AuthStorage` (the SDK's runtime credential store for upstream model providers) is persisted to `agent-os/.pi/agent/auth.json` (plain JSON, mode 600). This directory is gitignored. With Ollama local you can ignore this entirely; it matters when you sync real Anthropic/OpenAI keys via `VaultBridge`.
+
 ## Setup
 
 ### Prerequisites
@@ -121,6 +135,8 @@ Open `http://localhost:3000/agent-ui/` for the chat UI. The original DocStore da
 | `PORT` | `3000` | HTTP port (read by `server.js`). |
 | `AGENT_OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible endpoint. |
 | `AGENT_OLLAMA_MODEL` | `gemma4:31b-cloud` | Model id to register and use by default. |
+| `AGENT_OS_DISABLE_AUTH` | unset | When `1`, the WebSocket accepts any client. Dev only. |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | — | Used by `test-e2e.js` to bootstrap/login. Production: set these to real values. |
 | `JWT_SECRET`, `VAULT_SECRET`, `DB_ENCRYPTION_KEY` | — | Required by `server.js`; see `../.env.example`. |
 
 Any model Ollama can serve via its OpenAI-compatible API works (e.g. `qwen3.6:latest`, `gpt-oss:20b`, `granite4.1:3b`). Swap the env var and restart.
@@ -158,7 +174,9 @@ node test-e2e.js "Saluda en una frase"
 - [x] Enrich `db_create_table` schema to accept column metadata (`type`, `unique`, `required`, `default`, `options`).
 - [x] Full CRUD over tables and data (`db_insert`/`db_find`/`db_update`/`db_remove`/`db_count`/`db_aggregate` + schema evolution).
 - [x] System-table protection + confirm-flag for destructive operations.
-- [ ] UI: list skills, switch between sessions, surface tool args/results.
-- [ ] Persist `AuthStorage` to disk (currently lives in memory per process).
-- [ ] Authentication on the WebSocket (JWT from the existing `auth` system).
+- [x] Surface tool args/results in the UI (collapsible cards per tool call).
+- [x] Persist `AuthStorage` to disk (`agent-os/.pi/agent/auth.json`).
+- [x] Authentication on the WebSocket (JWT from the existing `auth` system, with `AGENT_OS_DISABLE_AUTH=1` dev bypass).
+- [ ] UI: list skills, switch between sessions.
 - [ ] Surface `db_aggregate` errors with stage context (currently bubbles up the raw exception).
+- [ ] `db.flush()` is called after most write endpoints in `server.js`, but only a few now call `dbAdapter.persist()`; sweep the rest so all mutations are crash-safe.

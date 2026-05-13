@@ -144,17 +144,18 @@ async function startServer(options = {}) {
     const { db, dbAdapter } = await initDb();
     const tableCache = new Map();
 
-    // Auto-persist encrypted data every 5 seconds
-    setInterval(async () => {
+    // Force a synchronous flush + encrypted disk persist. Use after writes that
+    // create users / store credentials so they survive an immediate restart
+    // (the 5s auto-persist below leaves a window where data lives only in RAM).
+    async function persistNow() {
         db.flush();
         if (dbAdapter?.persist) {
-            try {
-                await dbAdapter.persist();
-            } catch (err) {
-                // silently ignore
-            }
+            try { await dbAdapter.persist(); } catch (err) { /* swallow */ }
         }
-    }, 5000);
+    }
+
+    // Auto-persist encrypted data every 5 seconds
+    setInterval(persistNow, 5000);
 
     // --- VECTOR STORE INITIALIZATION ---
     const VECTOR_DIR = process.env.VECTOR_DIR || path.join(DATA_DIR, 'vectors');
@@ -352,7 +353,7 @@ async function startServer(options = {}) {
             // Get updated user with roles
             const updatedUser = usersTable.findById(user._id);
 
-            db.flush();
+            await persistNow();
 
             res.json({
                 success: true,
@@ -376,7 +377,7 @@ async function startServer(options = {}) {
                 user = auth.getUser(user._id);
             }
 
-            db.flush();
+            await persistNow();
             res.json({ success: true, user });
         } catch (e) { res.status(400).json({ success: false, message: e.message }); }
     });

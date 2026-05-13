@@ -24,7 +24,10 @@ const ColumnDef = Type.Object({
 const FIND_DEFAULT_LIMIT = 50;
 const FIND_MAX_LIMIT = 1000;
 
-const isSystemTable = (name) => typeof name !== "string" || name.startsWith("_");
+// Names that the auth/session subsystem owns. Block them on top of the
+// generic `_*` rule because js-doc-store-server keeps its user/session tables
+// without an underscore prefix.
+const DEFAULT_PROTECTED_TABLES = new Set(["users", "sessions"]);
 
 const ok = (text, details = {}) => ({
     content: [{ type: "text", text }],
@@ -42,13 +45,21 @@ const fail = (text, details = {}) => ({
  * Table constructor doesn't auto-load columns, only autoNum and views.
  */
 class ToolsFactory {
-    constructor({ db, Table, agentRuntime }) {
+    constructor({ db, Table, agentRuntime, protectedTables }) {
         if (!db) throw new Error("ToolsFactory requires { db }");
         if (!Table) throw new Error("ToolsFactory requires { Table }");
         this.db = db;
         this.Table = Table;
         this.agentRuntime = agentRuntime;
         this._tables = new Map();
+        const extra = Array.isArray(protectedTables) ? protectedTables : [];
+        this._protected = new Set([...DEFAULT_PROTECTED_TABLES, ...extra]);
+    }
+
+    _isSystemTable(name) {
+        if (typeof name !== "string") return true;
+        if (name.startsWith("_")) return true;
+        return this._protected.has(name);
     }
 
     _readPersistedColumns(name) {
@@ -82,7 +93,7 @@ class ToolsFactory {
                 description: "Lists all user-visible tables (system tables prefixed with `_` are hidden).",
                 parameters: Type.Object({}),
                 execute: async () => {
-                    const names = this.db.collections().filter((n) => !isSystemTable(n));
+                    const names = this.db.collections().filter((n) => !this._isSystemTable(n));
                     return ok(JSON.stringify(names, null, 2), { count: names.length });
                 },
             }),
@@ -96,7 +107,7 @@ class ToolsFactory {
                     columns: Type.Array(ColumnDef, { description: "Schema columns. Empty array for a free-form table." }),
                 }),
                 execute: async (_id, { tableName, columns }) => {
-                    if (isSystemTable(tableName)) return fail(`Cannot create system table '${tableName}' (names starting with '_' are reserved).`);
+                    if (this._isSystemTable(tableName)) return fail(`Cannot create system table '${tableName}' (names starting with '_' are reserved).`);
                     const existing = this.db.collections().includes(tableName);
                     if (existing) return fail(`Table '${tableName}' already exists. Use db_add_column to evolve it.`);
                     const table = new this.Table(this.db, tableName, { columns: columns || [] });
@@ -112,7 +123,7 @@ class ToolsFactory {
                 description: "Returns the column schema of a table.",
                 parameters: Type.Object({ tableName: Type.String() }),
                 execute: async (_id, { tableName }) => {
-                    if (isSystemTable(tableName)) return fail(`Cannot describe system table '${tableName}'.`);
+                    if (this._isSystemTable(tableName)) return fail(`Cannot describe system table '${tableName}'.`);
                     const table = this._table(tableName);
                     return ok(JSON.stringify({ name: tableName, columns: table.columns }, null, 2));
                 },
@@ -127,7 +138,7 @@ class ToolsFactory {
                     column: ColumnDef,
                 }),
                 execute: async (_id, { tableName, column }) => {
-                    if (isSystemTable(tableName)) return fail(`Cannot modify system table '${tableName}'.`);
+                    if (this._isSystemTable(tableName)) return fail(`Cannot modify system table '${tableName}'.`);
                     try {
                         const table = this._table(tableName);
                         table.addColumn(column);
@@ -148,7 +159,7 @@ class ToolsFactory {
                     confirm: Type.Optional(Type.Boolean({ description: "Must be true to execute." })),
                 }),
                 execute: async (_id, { tableName, columnName, confirm }) => {
-                    if (isSystemTable(tableName)) return fail(`Cannot modify system table '${tableName}'.`);
+                    if (this._isSystemTable(tableName)) return fail(`Cannot modify system table '${tableName}'.`);
                     if (!confirm) return fail(`Refusing to remove column '${columnName}' from '${tableName}' without confirm:true.`);
                     const table = this._table(tableName);
                     table.removeColumn(columnName);
@@ -165,7 +176,7 @@ class ToolsFactory {
                     confirm: Type.Optional(Type.Boolean({ description: "Must be true to execute." })),
                 }),
                 execute: async (_id, { tableName, confirm }) => {
-                    if (isSystemTable(tableName)) return fail(`Cannot drop system table '${tableName}'.`);
+                    if (this._isSystemTable(tableName)) return fail(`Cannot drop system table '${tableName}'.`);
                     if (!this.db.collections().includes(tableName)) return fail(`Table '${tableName}' does not exist.`);
                     if (!confirm) {
                         const count = this._table(tableName).count();
@@ -196,7 +207,7 @@ class ToolsFactory {
                     doc: Type.Any({ description: "The document to insert." }),
                 }),
                 execute: async (_id, { tableName, doc }) => {
-                    if (isSystemTable(tableName)) return fail(`Cannot write to system table '${tableName}'.`);
+                    if (this._isSystemTable(tableName)) return fail(`Cannot write to system table '${tableName}'.`);
                     try {
                         const inserted = this._table(tableName).insert(doc);
                         return ok(`Inserted into '${tableName}'.`, { doc: inserted });
@@ -218,7 +229,7 @@ class ToolsFactory {
                     skip: Type.Optional(Type.Number({ description: "Documents to skip (for pagination)." })),
                 }),
                 execute: async (_id, { tableName, filter = {}, sort, limit, skip }) => {
-                    if (isSystemTable(tableName)) return fail(`Cannot read system table '${tableName}'.`);
+                    if (this._isSystemTable(tableName)) return fail(`Cannot read system table '${tableName}'.`);
                     const capped = Math.min(typeof limit === "number" ? limit : FIND_DEFAULT_LIMIT, FIND_MAX_LIMIT);
                     let cursor = this._table(tableName).find(filter);
                     if (sort) cursor = cursor.sort(sort);
@@ -238,7 +249,7 @@ class ToolsFactory {
                     filter: Type.Optional(Type.Any()),
                 }),
                 execute: async (_id, { tableName, filter = {} }) => {
-                    if (isSystemTable(tableName)) return fail(`Cannot read system table '${tableName}'.`);
+                    if (this._isSystemTable(tableName)) return fail(`Cannot read system table '${tableName}'.`);
                     const doc = this._table(tableName).findOne(filter);
                     return ok(doc ? JSON.stringify(doc, null, 2) : "null");
                 },
@@ -254,7 +265,7 @@ class ToolsFactory {
                     update: Type.Any({ description: "Update spec, e.g. { $set: { status: 'done' } }." }),
                 }),
                 execute: async (_id, { tableName, filter, update }) => {
-                    if (isSystemTable(tableName)) return fail(`Cannot write to system table '${tableName}'.`);
+                    if (this._isSystemTable(tableName)) return fail(`Cannot write to system table '${tableName}'.`);
                     try {
                         const modified = this._table(tableName).update(filter, update);
                         return ok(`Updated ${modified} document(s) in '${tableName}'.`, { modified });
@@ -273,7 +284,7 @@ class ToolsFactory {
                     filter: Type.Optional(Type.Any()),
                 }),
                 execute: async (_id, { tableName, filter = {} }) => {
-                    if (isSystemTable(tableName)) return fail(`Cannot read system table '${tableName}'.`);
+                    if (this._isSystemTable(tableName)) return fail(`Cannot read system table '${tableName}'.`);
                     const n = this._table(tableName).count(filter);
                     return ok(String(n), { count: n });
                 },
@@ -289,7 +300,7 @@ class ToolsFactory {
                     confirm: Type.Optional(Type.Boolean({ description: "Must be true to execute." })),
                 }),
                 execute: async (_id, { tableName, filter, confirm }) => {
-                    if (isSystemTable(tableName)) return fail(`Cannot write to system table '${tableName}'.`);
+                    if (this._isSystemTable(tableName)) return fail(`Cannot write to system table '${tableName}'.`);
                     if (!confirm) {
                         const matching = this._table(tableName).count(filter);
                         return fail(`Refusing to remove ${matching} document(s) from '${tableName}' without confirm:true.`);
@@ -323,7 +334,7 @@ class ToolsFactory {
                     ),
                 }),
                 execute: async (_id, { tableName, pipeline }) => {
-                    if (isSystemTable(tableName)) return fail(`Cannot read system table '${tableName}'.`);
+                    if (this._isSystemTable(tableName)) return fail(`Cannot read system table '${tableName}'.`);
                     try {
                         let agg = this._table(tableName)._col.aggregate();
                         for (const { stage, params } of pipeline) {

@@ -1,4 +1,62 @@
-const socket = io();
+const TOKEN_KEY = 'agent-os-token';
+
+const loginOverlay = document.getElementById('login-overlay');
+const loginForm = document.getElementById('login-form');
+const loginEmail = document.getElementById('login-email');
+const loginPassword = document.getElementById('login-password');
+const loginError = document.getElementById('login-error');
+const btnLogout = document.getElementById('btn-logout');
+
+let socket = null;
+
+function showLogin(message) {
+    loginOverlay.classList.add('visible');
+    loginError.textContent = message || '';
+}
+
+function hideLogin() {
+    loginOverlay.classList.remove('visible');
+    loginError.textContent = '';
+}
+
+async function login(email, password) {
+    const res = await fetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+        throw new Error(data.message || `Login failed (HTTP ${res.status})`);
+    }
+    return data.token;
+}
+
+function logout(reason) {
+    localStorage.removeItem(TOKEN_KEY);
+    if (socket) { try { socket.close(); } catch {} socket = null; }
+    showLogin(reason || '');
+}
+
+function connectSocket(token) {
+    socket = io({ auth: { token } });
+    bindSocketEvents(socket);
+}
+
+loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    loginError.textContent = '';
+    try {
+        const token = await login(loginEmail.value.trim(), loginPassword.value);
+        localStorage.setItem(TOKEN_KEY, token);
+        hideLogin();
+        connectSocket(token);
+    } catch (err) {
+        loginError.textContent = err.message;
+    }
+});
+
+btnLogout?.addEventListener('click', () => logout('Signed out.'));
 
 const chatWindow = document.getElementById('chat-window');
 const userInput = document.getElementById('user-input');
@@ -112,51 +170,63 @@ function renderToolEnd(event) {
 
 function sendMessage() {
     const text = userInput.value.trim();
-    if (!text) return;
+    if (!text || !socket) return;
     appendUserMessage(text);
     userInput.value = '';
     statusIndicator.textContent = 'Thinking…';
     socket.emit('agent:prompt', { text });
 }
 
-socket.on('agent:event', (event) => {
-    if (event.type === 'message_update') {
-        const ev = event.assistantMessageEvent;
-        if (ev && ev.type === 'text_delta' && ev.delta) {
-            if (!currentMessageElement) {
-                currentMessageElement = appendAgentMessageContainer();
+function bindSocketEvents(sock) {
+    sock.on('connect_error', (err) => {
+        // socket.io middleware errors come through here. Treat anything that
+        // mentions auth/forbidden as a credential problem and force re-login.
+        const msg = err?.message || 'Connection failed';
+        if (/unauthor|forbidden|token/i.test(msg)) {
+            logout(msg);
+        } else {
+            statusIndicator.textContent = `Disconnected: ${msg}`;
+        }
+    });
+
+    sock.on('agent:event', (event) => {
+        if (event.type === 'message_update') {
+            const ev = event.assistantMessageEvent;
+            if (ev && ev.type === 'text_delta' && ev.delta) {
+                if (!currentMessageElement) {
+                    currentMessageElement = appendAgentMessageContainer();
+                }
+                currentMessageElement.textContent += ev.delta;
+                chatWindow.scrollTop = chatWindow.scrollHeight;
             }
-            currentMessageElement.textContent += ev.delta;
-            chatWindow.scrollTop = chatWindow.scrollHeight;
+        } else if (event.type === 'tool_execution_start') {
+            statusIndicator.textContent = `Running tool: ${event.toolName}…`;
+            renderToolStart(event);
+            currentMessageElement = null;
+        } else if (event.type === 'tool_execution_end') {
+            renderToolEnd(event);
+            statusIndicator.textContent = 'Thinking…';
+        } else if (event.type === 'message_end' || event.type === 'agent_end') {
+            currentMessageElement = null;
+            if (event.type === 'agent_end') {
+                statusIndicator.textContent = 'Idle';
+            }
         }
-    } else if (event.type === 'tool_execution_start') {
-        statusIndicator.textContent = `Running tool: ${event.toolName}…`;
-        renderToolStart(event);
-        // Tool output goes in a new bubble after — close the current text bubble.
-        currentMessageElement = null;
-    } else if (event.type === 'tool_execution_end') {
-        renderToolEnd(event);
-        statusIndicator.textContent = 'Thinking…';
-    } else if (event.type === 'message_end' || event.type === 'agent_end') {
-        currentMessageElement = null;
-        if (event.type === 'agent_end') {
-            statusIndicator.textContent = 'Idle';
-        }
-    }
-});
+    });
 
-socket.on('agent:session:updated', ({ sessionId }) => {
-    updateSessionList(sessionId);
-});
+    sock.on('agent:session:updated', ({ sessionId }) => {
+        updateSessionList(sessionId);
+    });
 
-socket.on('agent:error', ({ message }) => {
-    const div = document.createElement('div');
-    div.className = 'message error-message';
-    div.textContent = `Error: ${message}`;
-    chatWindow.appendChild(div);
-    chatWindow.scrollTop = chatWindow.scrollHeight;
-    statusIndicator.textContent = 'Idle';
-});
+    sock.on('agent:error', ({ message }) => {
+        const div = document.createElement('div');
+        div.className = 'message error-message';
+        div.textContent = `Error: ${message}`;
+        chatWindow.appendChild(div);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+        statusIndicator.textContent = 'Idle';
+    });
+}
 
 function updateSessionList(activeId) {
     sessionList.innerHTML = '';
@@ -171,7 +241,7 @@ btnNewSession.onclick = () => {
     chatWindow.innerHTML = '';
     toolCallElements.clear();
     currentMessageElement = null;
-    socket.emit('agent:session:new');
+    socket?.emit('agent:session:new');
 };
 
 userInput.onkeydown = (e) => {
@@ -180,3 +250,14 @@ userInput.onkeydown = (e) => {
         sendMessage();
     }
 };
+
+// Boot: if we already have a token, try to connect with it; otherwise prompt.
+(function boot() {
+    const saved = localStorage.getItem(TOKEN_KEY);
+    if (saved) {
+        hideLogin();
+        connectSocket(saved);
+    } else {
+        showLogin();
+    }
+})();

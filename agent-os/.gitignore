@@ -2,3 +2,7 @@
 # own test runners alongside the library code.
 !test-agent-os.js
 !test-e2e.js
+
+# Runtime state: SDK auth storage (plaintext API keys), sessions, settings.
+.pi/
+data/

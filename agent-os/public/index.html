@@ -8,6 +8,16 @@
     <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
+    <div id="login-overlay" class="login-overlay">
+        <form id="login-form" class="login-card">
+            <h2>Agent OS</h2>
+            <p class="login-hint">Sign in with an admin account to talk to the agent.</p>
+            <label>Email<input type="email" id="login-email" required autocomplete="username"></label>
+            <label>Password<input type="password" id="login-password" required autocomplete="current-password"></label>
+            <button type="submit" id="btn-login">Sign in</button>
+            <div id="login-error" class="login-error"></div>
+        </form>
+    </div>
     <div class="app-container">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -36,7 +46,10 @@
             </div>
 
             <div class="input-area">
-                <div id="agent-status" class="status-indicator">Idle</div>
+                <div class="status-row">
+                    <div id="agent-status" class="status-indicator">Idle</div>
+                    <button id="btn-logout" class="btn-logout" type="button">Sign out</button>
+                </div>
                 <div class="input-wrapper">
                     <textarea id="user-input" placeholder="Ask the agent to build something..." rows="1"></textarea>
                     <button id="btn-send">Send</button>
