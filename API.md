@@ -13,6 +13,7 @@ Complete REST API documentation for js-doc-store-server.
 - [Admin Endpoints](#admin-endpoints)
 - [Vector Search Endpoints](#-vector-search-endpoints-js-vector-store-integration)
 - [Vault Endpoints](#vault-endpoints)
+- [Connection Metadata Endpoints](#connection-metadata-endpoints)
 - [Error Handling](#error-handling)
 - [Rate Limits](#rate-limits)
 
@@ -683,7 +684,7 @@ Semantic vector search.
   "vector": [0.1, -0.2, 0.3, ...],
   "limit": 10,
   "metric": "cosine",
-  "matryoshka": [128, 384, 768]
+  "weights": [0.7, 0.3]
 }
 ```
 
@@ -694,7 +695,7 @@ Semantic vector search.
 | vector | number[] | Yes | Query embedding |
 | limit | number | No | Max results (default: 10) |
 | metric | string | No | `cosine`\|`euclidean`\|`dotProduct`\|`manhattan` |
-| matryoshka | number[] | No | Multi-stage dimensions, e.g. `[128, 384, 768]` |
+| weights | number[] | No | Weights for hybrid search [vectorWeight, textWeight] (default: [0.7, 0.3]) |
 
 **Response:**
 ```json
@@ -723,8 +724,7 @@ Hybrid search combining vector similarity + BM25 text relevance.
   "text": "artificial intelligence in medicine",
   "limit": 10,
   "mode": "rrf",
-  "vectorWeight": 0.6,
-  "textWeight": 0.4
+  "weights": [0.6, 0.4]
 }
 ```
 
@@ -732,8 +732,7 @@ Hybrid search combining vector similarity + BM25 text relevance.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | mode | string | No | `rrf` (Reciprocal Rank Fusion) or `weighted` |
-| vectorWeight | number | No | Weight for vector score (default: 0.6) |
-| textWeight | number | No | Weight for BM25 score (default: 0.4) |
+| weights | number[] | No | Weights for hybrid search [vectorWeight, textWeight] (default: [0.7, 0.3]) |
 
 ---
 
@@ -906,6 +905,7 @@ Index a document with auto-generated embedding from text content.
   "collection": "documents",
   "id": "doc-123",
   "text": "This is the document content to be embedded",
+  "doc": { "content": "This is the document content...", "category": "tech", "author": "John" },
   "metadata": { "category": "tech", "author": "John" },
   "dimensions": 768
 }
@@ -916,7 +916,8 @@ Index a document with auto-generated embedding from text content.
 |------|------|----------|-------------|
 | collection | string | No | Collection name (default: "default") |
 | id | string | Yes | Document ID |
-| text | string | Yes | Text content to embed |
+| text | string | Yes | Text content to embed (if not providing doc) |
+| doc | object | Yes | Document to extract text from (if not providing text) |
 | metadata | object | No | Additional metadata |
 | dimensions | number | No | Embedding dimensions (default: 768) |
 
@@ -1011,10 +1012,9 @@ Batch index multiple documents with auto-generated embeddings.
 ```json
 {
   "collection": "articles",
-  "textField": "content",
   "documents": [
-    { "id": "1", "content": "First article text...", "author": "Alice" },
-    { "id": "2", "content": "Second article text...", "author": "Bob" }
+    { "id": "1", "text": "First article text...", "author": "Alice" },
+    { "id": "2", "text": "Second article text...", "author": "Bob" }
   ],
   "dimensions": 768
 }
@@ -1024,8 +1024,7 @@ Batch index multiple documents with auto-generated embeddings.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | collection | string | No | Collection name (default: "default") |
-| textField | string | Yes | Field name containing text to embed |
-| documents | array | Yes | Array of documents with IDs |
+| documents | array | Yes | Array of documents with ids and text fields |
 | dimensions | number | No | Embedding dimensions (default: 768) |
 
 **Request:**
@@ -1035,10 +1034,9 @@ curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/batch-index-
   -H "Content-Type: application/json" \
   -d '{
     "collection": "articles",
-    "textField": "content",
     "documents": [
-      { "id": "doc-1", "content": "Machine learning basics...", "category": "AI" },
-      { "id": "doc-2", "content": "Deep learning explained...", "category": "AI" }
+      { "id": "doc-1", "text": "Machine learning basics...", "category": "AI" },
+      { "id": "doc-2", "text": "Deep learning explained...", "category": "AI" }
     ],
     "dimensions": 768
   }'
@@ -1052,146 +1050,6 @@ curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/batch-index-
   "collection": "articles",
   "dimensions": 768
 }
-```
-
-### Matryoshka Embeddings
-
-Support for configurable dimensions (truncating from 2048):
-
-| Dimensions | Use Case | Speed | Precision |
-|------------|----------|-------|-----------|
-| 64 | Mobile/Edge | ⚡⚡⚡ | ⭐⭐ |
-| 256 | Web apps | ⚡⚡⚡ | ⭐⭐⭐ |
-| 768 | Standard search | ⚡⚡ | ⭐⭐⭐⭐ |
-| 2048 | Maximum quality | ⚡ | ⭐⭐⭐⭐⭐ |
-
----
-
-## 📊 Monitoring Endpoints
-
-### GET /health
-
-Health check endpoint for monitoring and load balancers.
-
-**Authentication:** None
-
-**Request:**
-```bash
-curl https://YOUR_WORKER_SUBDOMAIN.workers.dev/health
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "status": "healthy",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "version": "1.2.0",
-  "features": {
-    "embeddings": true,
-    "kv": "connected",
-    "rateLimiting": true,
-    "metrics": true
-  }
-}
-```
-
----
-
-### GET /admin/metrics
-
-Get usage metrics for monitoring.
-
-**Authentication:** Required (Admin)
-
-**Query Parameters:**
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| hours | number | 24 | Hours of history to retrieve |
-
-**Request:**
-```bash
-curl "https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/metrics?hours=24" \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "period": "24h",
-  "summary": {
-    "totalRequests": 1523,
-    "totalErrors": 12,
-    "totalEmbeddings": 234,
-    "errorRate": "0.79%"
-  },
-  "hourly": {
-    "2024-01-15T10": {
-      "requests": 45,
-      "errors": 1,
-      "embeddings": 12
-    }
-  }
-}
-```
-
----
-
-### GET /admin/errors
-
-Get recent error reports (last 50).
-
-**Authentication:** Required (Admin)
-
-**Request:**
-```bash
-curl https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/errors \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "count": 12,
-  "errors": [
-    {
-      "timestamp": "2024-01-15T10:30:00Z",
-      "userAgent": "Mozilla/5.0...",
-      "error": "Rate limit exceeded",
-      "context": { "path": "/admin/embed" },
-      "url": "https://..."
-    }
-  ]
-}
-```
-
----
-
-### POST /admin/errors/report
-
-Report client-side errors for monitoring.
-
-**Authentication:** None
-
-**Request Body:**
-```json
-{
-  "error": "Something went wrong",
-  "context": { "component": "SearchForm" },
-  "url": "https://myapp.com/search"
-}
-```
-
-**Request:**
-```bash
-curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/errors/report \
-  -H "Content-Type: application/json" \
-  -d '{
-    "error": "Network timeout",
-    "context": { "operation": "vector_search" }
-  }'
 ```
 
 ---
@@ -1230,6 +1088,41 @@ List all secrets (without values).
   "secrets": [
     {"_id": "stripe-api-key", "label": "Stripe Production Key", "createdAt": "2024-01-15T10:30:00Z"}
   ]
+}
+```
+
+---
+
+### POST /admin/vault/get
+
+Get a secret value (decrypted).
+
+**Authentication:** Required (Admin)
+
+**Request Body:**
+```json
+{
+  "secretId": "stripe-api-key"
+}
+```
+
+**Request:**
+```bash
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vault/get \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "secretId": "stripe-api-key"
+  }'
+```
+
+**Success Response:**
+```json
+{
+  "success": true,
+  "secretId": "stripe-api-key",
+  "label": "Stripe Production Key",
+  "value": "sk_live_abc123..."
 }
 ```
 
@@ -1312,6 +1205,78 @@ curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vault/execute \
 
 ---
 
+## 🔗 Connection Metadata Endpoints
+
+Manage VPS/Server connection credentials.
+
+### POST /admin/connections/register
+
+Register a new connection.
+
+**Authentication:** Required (Admin)
+
+**Request Body:**
+```json
+{
+  "name": "production-server",
+  "host": "192.168.1.100",
+  "port": 22,
+  "username": "admin",
+  "vaultSecretId": "ssh-key-production",
+  "label": "Production SSH Key"
+}
+```
+
+**Request:**
+```bash
+curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/connections/register \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "production-server",
+    "host": "192.168.1.100",
+    "port": 22,
+    "username": "admin",
+    "vaultSecretId": "ssh-key-production",
+    "label": "Production SSH Key"
+  }'
+```
+
+**Success Response:**
+```json
+{
+  "success": true,
+  "message": "Connection registered"
+}
+```
+
+---
+
+### POST /admin/connections/list
+
+List all registered connections.
+
+**Authentication:** Required (Admin)
+
+**Response:**
+```json
+{
+  "success": true,
+  "connections": [
+    {
+      "name": "production-server",
+      "host": "192.168.1.100",
+      "port": 22,
+      "username": "admin",
+      "label": "Production SSH Key",
+      "createdAt": "2024-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+---
+
 ## ⚠️ Error Handling
 
 All errors follow this format:
@@ -1337,130 +1302,5 @@ All errors follow this format:
 
 ---
 
-## 🚦 Rate Limits
-
-### Cloudflare Free Tier
-- 100,000 requests/day
-- 1,000 writes/day
-- 1 GB storage
-
-### Best Practices
-1. Use batch operations when possible
-2. Cache results client-side
-3. Implement retry logic with exponential backoff
-
----
-
-## 📝 Examples
-
-### Complete CRUD Flow
-
-```bash
-# 1. Login
-TOKEN=$(curl -s -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","password":"password"}' | jq -r '.token')
-
-# 2. Create table
-curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/create-table \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"tableName":"products","columns":[{"name":"Name","type":"text","required":true}]}'
-
-# 3. Insert document
-curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/insert \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"tableName":"products","data":{"Name":"Laptop"}}'
-
-# 4. Query
-curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/query \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"tableName":"products","filter":{}}'
-```
-
-### Vector Search Flow
-
-```bash
-# Get token (same as above)
-TOKEN=$(curl -s -X POST ...)
-
-# 1. Index a document with embedding
-EMBEDDING='[0.1, -0.2, 0.3, ...]'  # From your embedding model
-curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/index \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"collection\": \"articles\",
-    \"id\": \"article-001\",
-    \"vector\": $EMBEDDING,
-    \"metadata\": { \"title\": \"AI in Medicine\" }
-  }"
-
-# 2. Semantic search
-QUERY_EMBEDDING='[0.15, -0.18, 0.25, ...]'
-curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/search \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"collection\": \"articles\",
-    \"vector\": $QUERY_EMBEDDING,
-    \"limit\": 5
-  }"
-
-# 3. Hybrid search (vector + text)
-curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/search-hybrid \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"collection\": \"articles\",
-    \"vector\": $QUERY_EMBEDDING,
-    \"text\": \"artificial intelligence medicine\",
-    \"limit\": 10
-  }"
-
-# 4. Cross-collection search
-curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/search-cross \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"collections\": [\"articles\", \"docs\", \"products\"],
-    \"vector\": $QUERY_EMBEDDING,
-    \"limit\": 10
-  }"
-
-# 5. List collections
-curl https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/collections \
-  -H "Authorization: Bearer $TOKEN"
-
-# 6. Delete a vector
-curl -X DELETE https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/articles/article-001 \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### With Cloudflare Workers AI Embeddings
-
-```bash
-# Generate embedding with Workers AI
-EMBEDDING=$(curl -s "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/ai/run/@cf/google/embeddinggemma-300m" \
-  -H "Authorization: Bearer $CF_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"text":["machine learning in healthcare"]}' | jq '.result.data[0]')
-
-# Index it
-curl -X POST https://YOUR_WORKER_SUBDOMAIN.workers.dev/admin/vector/index \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"collection\": \"articles\",
-    \"id\": \"doc-1\",
-    \"vector\": $EMBEDDING,
-    \"metadata\": { \"source\": \"workers-ai\" }
-  }"
-```
-
----
-
-**Last Updated**: 2024
-**Version**: 1.1.0
+**Last Updated**: 2024-05-13
+**Version**: 1.2.0

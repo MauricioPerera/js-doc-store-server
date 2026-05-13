@@ -1,9 +1,15 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
+const dotenv = require('dotenv');
+const path = require('path');
+const result = dotenv.config({ path: path.resolve(__dirname, '.env') });
+if (result.error) {
+  console.error('Dotenv error:', result.error);
+  process.exit(1);
+}
+console.log('Dotenv result:', result.parsed);
 const { DocStore, FileStorageAdapter, EncryptedAdapter, Table, Auth, FieldCrypto, createFromTemplate } = require('js-doc-store');
 const { VectorStore, QuantizedStore, BinaryQuantizedStore, PolarQuantizedStore, BM25Index, HybridSearch } = require('./js-vector-store.js');
-const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 
@@ -111,11 +117,17 @@ if (!fs.existsSync(DATA_DIR)) {
 async function initDb() {
     try {
         const baseAdapter = new FileStorageAdapter(DATA_DIR);
-        // EncryptedAdapter wraps the base adapter, encrypting everything at rest
-        const encryptedAdapter = await EncryptedAdapter.create(baseAdapter, DB_ENCRYPTION_KEY);
-        
-        const db = new DocStore(encryptedAdapter);
-        return db;
+        const dbAdapter = await EncryptedAdapter.create(baseAdapter, DB_ENCRYPTION_KEY);
+        // Preload data for collections that will be accessed during initialization
+        // Specifically for Auth collections: _users and _sessions
+        await dbAdapter.preload([
+            '_users.docs.json',
+            '_users.meta.json',
+            '_sessions.docs.json',
+            '_sessions.meta.json'
+        ]);
+        const db = new DocStore(dbAdapter);
+        return { db, dbAdapter };
     } catch (e) {
         console.error("Database Initialization Error:", e);
         process.exit(1);
@@ -124,8 +136,20 @@ async function initDb() {
 
 // Since initDb is async, we wrap the server start
 async function startServer() {
-    const db = await initDb();
+    const { db, dbAdapter } = await initDb();
     const tableCache = new Map();
+
+    // Auto-persist encrypted data every 5 seconds
+    setInterval(async () => {
+        db.flush();
+        if (dbAdapter?.persist) {
+            try {
+                await dbAdapter.persist();
+            } catch (err) {
+                // silently ignore
+            }
+        }
+    }, 5000);
 
     // --- VECTOR STORE INITIALIZATION ---
     const VECTOR_DIR = process.env.VECTOR_DIR || path.join(DATA_DIR, 'vectors');
